@@ -21,6 +21,13 @@ slice, but relevant context if asked to integrate order/inventory data later.
 - `npm install` succeeds, `npx tsc --noEmit` passes clean, CLI smoke-tested.
 - OAuth (`auth.ts`), campaign list (`campaigns.ts`), and the async Reporting API v3
   flow (`reports.ts`) are implemented for **Sponsored Products only**.
+- **Slice two (read-only web dashboard) added** at Krinesh's request: `src/server/` (Hono JSON API
+  over SQLite) + `web/` (React + Vite, hand-rolled SVG charts, no UI libraries). Screens: Overview,
+  Campaigns, Campaign detail, Insights (suggestions only), Sync status. `npm run demo` runs it on fake
+  data in `data/demo.sqlite` (flagged `meta.data_source='demo'` and bannered in the UI).
+  `src/config/paths.ts` holds `DB_PATH` separately so the dashboard boots without Amazon creds;
+  Amazon-calling code still validates eagerly via `env.ts`. The server has **no auth** and binds
+  127.0.0.1 — add auth before any hosting.
 - SQLite (`better-sqlite3`) is the deliberate stopgap datastore — see README for when
   to swap it for Postgres.
 - **Krinesh does not yet have Amazon Ads API credentials.** He needs to register as an
