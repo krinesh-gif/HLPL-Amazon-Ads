@@ -1,10 +1,6 @@
-import {
-  downloadReport,
-  requestReport,
-  spCampaignDailyReportRequest,
-  waitForReport,
-} from "../amazon-ads/reports.js";
+import { runReport, spCampaignDailyReportRequest } from "../amazon-ads/reports.js";
 import { db, initSchema } from "../db/client.js";
+import { reportWindows } from "./reportWindows.js";
 
 interface ReportRow {
   date: string;
@@ -21,17 +17,6 @@ interface ReportRow {
 export async function syncReports(daysBack = 7): Promise<number> {
   initSchema();
 
-  const endDate = new Date();
-  const startDate = new Date(endDate);
-  startDate.setDate(startDate.getDate() - daysBack);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-
-  console.log(`Requesting SP campaign report for ${fmt(startDate)} to ${fmt(endDate)}...`);
-  const reportId = await requestReport(spCampaignDailyReportRequest(fmt(startDate), fmt(endDate)));
-  console.log(`Report requested (id=${reportId}), waiting for it to finish...`);
-  const url = await waitForReport(reportId);
-  const rows = await downloadReport<ReportRow>(url);
-
   const upsert = db.prepare(`
     INSERT INTO sp_campaign_daily_metrics
       (date, campaign_id, campaign_name, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
@@ -46,12 +31,19 @@ export async function syncReports(daysBack = 7): Promise<number> {
       synced_at     = excluded.synced_at
   `);
 
-  const syncedAt = new Date().toISOString();
-  const insertMany = db.transaction((data: ReportRow[]) => {
-    for (const r of data) upsert.run({ ...r, syncedAt });
+  const insertMany = db.transaction((data: ReportRow[], syncedAt: string) => {
+    for (const r of data) upsert.run({ ...r, campaignId: String(r.campaignId), syncedAt });
   });
-  insertMany(rows);
 
-  console.log(`Synced ${rows.length} row(s) of daily campaign performance into ${db.name}.`);
-  return rows.length;
+  // One report per <=31-day window (Amazon's limit per v3 report).
+  let total = 0;
+  for (const w of reportWindows(daysBack)) {
+    console.log(`Requesting SP campaign report for ${w.start} to ${w.end}...`);
+    const rows = await runReport<ReportRow>(spCampaignDailyReportRequest(w.start, w.end));
+    insertMany(rows, new Date().toISOString());
+    total += rows.length;
+  }
+
+  console.log(`Synced ${total} row(s) of daily campaign performance into ${db.name}.`);
+  return total;
 }

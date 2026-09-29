@@ -1,4 +1,5 @@
 import { db, initSchema } from "../db/client.js";
+import { buildDemoTargets, splitDay } from "./demoTargeting.js";
 
 /**
  * Fills the DB with realistic-looking but entirely FAKE Sponsored Products data, so the
@@ -51,6 +52,8 @@ const CAMPAIGNS: DemoCampaign[] = [
 ];
 
 const DAYS = 180;
+/** Amazon only keeps search-term data for a limited window, so the demo mirrors that. */
+const SEARCH_TERM_DAYS = 90;
 
 export function seedDemo({ force = false } = {}): void {
   initSchema();
@@ -74,13 +77,26 @@ export function seedDemo({ force = false } = {}): void {
   const insertCampaign = db.prepare(`
     INSERT INTO sp_campaigns (campaign_id, name, state, targeting_type, daily_budget, start_date, end_date, synced_at)
     VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`);
+  const insertAdGroup = db.prepare(`INSERT INTO sp_ad_groups VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertTarget = db.prepare(`INSERT INTO sp_targets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertNegative = db.prepare(`INSERT INTO sp_negative_keywords VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertTargetMetric = db.prepare(`
+    INSERT INTO sp_target_daily_metrics
+      (date, target_id, campaign_id, ad_group_id, text, match_type, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertTermMetric = db.prepare(`
+    INSERT INTO sp_search_term_daily_metrics
+      (date, search_term, target_id, campaign_id, ad_group_id, targeting, match_type, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertMetric = db.prepare(`
     INSERT INTO sp_campaign_daily_metrics
       (date, campaign_id, campaign_name, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   db.transaction(() => {
-    db.exec(`DELETE FROM sp_campaign_daily_metrics; DELETE FROM sp_campaigns; DELETE FROM sync_runs; DELETE FROM profiles;`);
+    db.exec(`DELETE FROM sp_campaign_daily_metrics; DELETE FROM sp_campaigns; DELETE FROM sync_runs; DELETE FROM profiles;
+      DELETE FROM sp_ad_groups; DELETE FROM sp_targets; DELETE FROM sp_negative_keywords;
+      DELETE FROM sp_target_daily_metrics; DELETE FROM sp_search_term_daily_metrics;`);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('data_source', 'demo')`).run();
     db.prepare(
       `INSERT INTO profiles VALUES ('0000000000000', 'IN', 'INR', 'Aravi Organic (DEMO)', 'seller', ?)`
@@ -90,6 +106,14 @@ export function seedDemo({ force = false } = {}): void {
       const id = String(300000000000000 + i * 7919);
       const start = new Date(today.getTime() - (DAYS + 30) * 86_400_000);
       insertCampaign.run(id, c.name, c.state ?? "enabled", c.targeting, c.budget, start.toISOString().slice(0, 10), syncedAt);
+
+      const adGroupId = String(500000000000000 + i * 7919);
+      insertAdGroup.run(adGroupId, id, `${c.name.split("|")[1]?.trim() ?? c.name} – main`, c.state ?? "enabled", Math.round(c.cpc * 1.2 * 100) / 100, syncedAt);
+      const targets = buildDemoTargets(c.name, c.cpc, rand);
+      for (const t of targets) insertTarget.run(t.id, t.kind, id, adGroupId, t.text, t.matchType, "enabled", t.bid, syncedAt);
+      // One junk term already negated in some ad groups, so the "already negated" logic has something to find.
+      if (i % 3 === 0) insertNegative.run(`demo-neg-${i}`, id, adGroupId, "coconut oil", "negative_exact", syncedAt);
+      if (i % 4 === 1) insertNegative.run(`demo-negc-${i}`, id, null, "mustard oil", "negative_phrase", syncedAt);
 
       for (let d = DAYS; d >= 1; d--) {
         if (c.pausedDaysAgo && d < c.pausedDaysAgo) continue;
@@ -114,10 +138,20 @@ export function seedDemo({ force = false } = {}): void {
         for (let k = 0; k < clicks; k++) if (rand() < c.cvr * (sale > 1 ? 1.15 : 1)) orders++;
         const sales = orders * c.aov * noise(0.08);
 
-        insertMetric.run(
-          date.toISOString().slice(0, 10), id, c.name, impressions, clicks,
-          Math.round(cost * 100) / 100, Math.round(sales * 100) / 100, orders, syncedAt
-        );
+        const day = date.toISOString().slice(0, 10);
+        const totals = { impressions, clicks, cost: Math.round(cost * 100) / 100, sales: Math.round(sales * 100) / 100, orders };
+        insertMetric.run(day, id, c.name, impressions, clicks, totals.cost, totals.sales, orders, syncedAt);
+
+        splitDay(totals, targets, rand).forEach((tt, ti) => {
+          const t = targets[ti];
+          if (tt.impressions === 0) return;
+          insertTargetMetric.run(day, t.id, id, adGroupId, t.text, t.matchType, tt.impressions, tt.clicks, tt.cost, tt.sales, tt.orders, syncedAt);
+          if (d > SEARCH_TERM_DAYS) return;
+          splitDay(tt, t.terms, rand).forEach((st, si) => {
+            if (st.impressions === 0) return;
+            insertTermMetric.run(day, t.terms[si].term, t.id, id, adGroupId, t.text, t.matchType, st.impressions, st.clicks, st.cost, st.sales, st.orders, syncedAt);
+          });
+        });
       }
     });
 
@@ -129,6 +163,9 @@ export function seedDemo({ force = false } = {}): void {
       const t = new Date(today.getTime() - d * 86_400_000 + 6 * 3_600_000);
       const done = new Date(t.getTime() + 95_000);
       insertRun.run("campaigns", t.toISOString(), new Date(t.getTime() + 4000).toISOString(), "success", CAMPAIGNS.length, "demo");
+      insertRun.run("keywords", t.toISOString(), new Date(t.getTime() + 9000).toISOString(), "success", 60, "demo");
+      insertRun.run("targeting", t.toISOString(), done.toISOString(), "success", 900, "demo · last 14 days");
+      insertRun.run("search-terms", t.toISOString(), done.toISOString(), "success", 4200, "demo · last 14 days");
       if (d === 9) insertRun.run("reports", t.toISOString(), done.toISOString(), "failed", null, "demo: report did not finish within 300000ms");
       else insertRun.run("reports", t.toISOString(), done.toISOString(), "success", CAMPAIGNS.length * 7, "demo · last 7 days");
     }

@@ -2,6 +2,7 @@ import { useDeferredValue, useMemo, useState } from "react";
 import type { PageProps } from "../App";
 import { Card, Delta, Empty, ErrorBox, Skeleton, StatePill } from "../components/Ui";
 import { prefetch, qs, useApi } from "../lib/api";
+import { downloadCsv } from "../lib/csv";
 import { fmtCount, fmtINR, fmtPct, fmtRatio } from "../lib/format";
 import { METRICS, change } from "../lib/metrics";
 import { href, navigate } from "../lib/router";
@@ -96,13 +97,11 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
   });
 
   function exportCsv() {
-    const header = ["Campaign", "Campaign ID", ...columns.map((c) => c.label)];
-    const lines = rows.map((r) => [r.name, r.campaignId, ...columns.map((c) => c.value(r) ?? "")]);
-    const csv = [header, ...lines].map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: `aravi-sp-campaigns_${range.from}_${range.to}.csv` });
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `aravi-sp-campaigns_${range.from}_${range.to}.csv`,
+      ["Campaign", "Campaign ID", ...columns.map((c) => c.label)],
+      rows.map((r) => [r.name, r.campaignId, ...columns.map((c) => c.value(r))])
+    );
   }
 
   if (error) return <ErrorBox message={error} />;

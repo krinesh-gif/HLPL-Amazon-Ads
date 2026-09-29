@@ -34,11 +34,13 @@ Plus the **read-only web dashboard** (slice two) on top of that data:
 ```
 src/server/
   index.ts            Hono server: JSON API + serves the built UI (binds 127.0.0.1 — no login yet)
-  queries.ts          all dashboard SQL (aggregation happens in SQLite, not the browser)
+  queries.ts          dashboard SQL (aggregation happens in SQLite, not the browser)
+  targets.ts          keywords & targets + suggested-bid rule
+  searchTerms.ts      search-term harvest / negate rules
 src/demo/seedDemo.ts  fake-but-realistic demo data, flagged as demo in the DB and UI
 src/sync/syncRuns.ts  logs every sync:* run to sync_runs (powers the Sync status screen)
 web/                  React + Vite UI (no UI/chart libraries — hand-rolled SVG charts)
-  src/pages/          Overview, Campaigns, Campaign detail, Insights, Sync status
+  src/pages/          Overview, Campaigns, Campaign detail, Keywords, Search terms, Insights, Sync status
 ```
 
 ## The dashboard
@@ -55,6 +57,13 @@ Screens (modelled on Nola's, read-only):
   spend vs sales trend; top campaigns; "needs attention" list.
 - **Campaigns** — sortable/searchable/filterable table with totals and CSV export.
 - **Campaign detail** — per-campaign KPIs, daily chart (with the budget line on Spend), daily table.
+- **Keywords & targets** — every keyword, product (ASIN) target and auto-target group with bid,
+  performance and a **suggested bid** (moves toward target ACOS, max ±30% per step, needs 10+ clicks;
+  no-order targets cut only once the account's conversion rate says an order was due).
+- **Search terms** — every customer search term with what matched it. **Harvest** view: terms
+  converting via auto/broad/phrase/product targeting that aren't exact keywords (or ASIN targets)
+  yet. **Negate** view: terms with enough clicks and no orders (or ACOS over 2× target), per ad
+  group, skipping ones already negated. Thresholds are adjustable; CSV export for bulk upload.
 - **Insights** — rule-based suggestions against your target ACOS (spend without sales, ACOS over
   target, budget-capped but profitable, room to scale, spend spikes). Suggestions only.
 - **Sync status** — last run and history of each `sync:*` job, stale-data warnings
@@ -127,7 +136,19 @@ npm run db:init          # create the SQLite file/tables (data/aravi-ads.sqlite)
 npm run sync:campaigns    # pull current SP campaign settings
 npm run sync:reports      # pull the last 7 days of daily SP campaign performance
 npm run sync:reports -- 30   # or a different number of days back
+npm run sync:keywords     # ad groups, keywords, product/auto targets, negative keywords (current settings)
+npm run sync:targeting    # daily performance per keyword/target (default last 14 days)
+npm run sync:search-terms # daily customer search terms (default last 14 days; run `-- 60` once to backfill)
+npm run sync:all          # the daily job: campaigns + keywords + last 14 days of all three reports
 ```
+
+Report syncs split longer ranges into ≤31-day windows automatically (Amazon's per-report limit).
+Amazon keeps search-term data only for a limited window (roughly 60–90 days), so backfill
+it early and then keep `sync:all` running daily.
+
+**Not yet verified against the live API:** the `spTargeting` / `spSearchTerm` report columns and
+the v3 list endpoints for ad groups, keywords, targets and negatives follow Amazon's docs but
+haven't run against a real account from this repo. Check the first real `sync:all` output.
 
 Query the results directly with any SQLite tool, e.g.:
 ```bash

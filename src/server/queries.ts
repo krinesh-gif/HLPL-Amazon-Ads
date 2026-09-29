@@ -131,7 +131,10 @@ const stmts = {
     FROM sync_runs ORDER BY id DESC LIMIT 50`),
   counts: db.prepare(`
     SELECT (SELECT COUNT(*) FROM sp_campaigns) AS campaigns,
-           (SELECT COUNT(*) FROM sp_campaign_daily_metrics) AS dailyRows`),
+           (SELECT COUNT(*) FROM sp_campaign_daily_metrics) AS dailyRows,
+           (SELECT COUNT(*) FROM sp_targets) AS targets,
+           (SELECT COUNT(*) FROM sp_search_term_daily_metrics) AS searchTermRows`),
+  searchTermRange: db.prepare(`SELECT MIN(date) AS minDate, MAX(date) AS maxDate FROM sp_search_term_daily_metrics`),
   dataVersion: db.prepare(`PRAGMA data_version`).pluck(),
 };
 
@@ -143,13 +146,14 @@ export function dataVersion(): number {
 export function getMeta() {
   const range = stmts.dataRange.get() as { minDate: string | null; maxDate: string | null };
   const source = (stmts.meta.get("data_source") as { value: string } | undefined)?.value;
-  const counts = stmts.counts.get() as { campaigns: number; dailyRows: number };
+  const counts = stmts.counts.get() as { campaigns: number; dailyRows: number; targets: number; searchTermRows: number };
   return {
     dataSource: source === "demo" ? "demo" : counts.dailyRows > 0 || counts.campaigns > 0 ? "live" : "empty",
     minDate: range.minDate,
     maxDate: range.maxDate,
     profile: stmts.profile.get() ?? null,
     counts,
+    searchTerms: stmts.searchTermRange.get(),
   };
 }
 

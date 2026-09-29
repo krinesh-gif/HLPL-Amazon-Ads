@@ -24,9 +24,9 @@ export async function syncCampaigns(): Promise<number> {
       upsert.run({
         campaignId: c.campaignId,
         name: c.name,
-        state: c.state,
-        targetingType: c.targetingType,
-        dailyBudget: c.dailyBudget,
+        state: c.state.toLowerCase(),
+        targetingType: c.targetingType.toLowerCase(),
+        dailyBudget: c.budget?.budget ?? 0,
         startDate: c.startDate,
         endDate: c.endDate ?? null,
         syncedAt,

@@ -12,6 +12,8 @@ import {
   getSyncStatus,
   type Range,
 } from "./queries.js";
+import { getSearchTerms } from "./searchTerms.js";
+import { getTargets } from "./targets.js";
 
 /**
  * Read-only dashboard server: a small JSON API over the local SQLite DB plus the
@@ -80,6 +82,38 @@ app.get("/api/campaigns/:id", (c) => {
   if (typeof range === "string") return c.json({ error: range }, 400);
   const result = getCampaign(c.req.param("id"), range);
   return result ? c.json(result) : c.json({ error: "campaign not found" }, 404);
+});
+
+function numParam(v: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && v !== undefined && v !== "" ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+app.get("/api/search-terms", (c) => {
+  const range = parseRange(c.req.query("from"), c.req.query("to"));
+  if (typeof range === "string") return c.json({ error: range }, 400);
+  const view = c.req.query("view");
+  return c.json(
+    getSearchTerms({
+      range,
+      view: view === "harvest" || view === "negate" ? view : "all",
+      campaignId: c.req.query("campaignId") || undefined,
+      q: c.req.query("q") || undefined,
+      targetAcos: numParam(c.req.query("targetAcos"), 0.3, 0.01, 5),
+      minClicks: numParam(c.req.query("minClicks"), 10, 1, 1000),
+      minOrders: numParam(c.req.query("minOrders"), 2, 1, 1000),
+      sort: c.req.query("sort") || "cost",
+      dir: c.req.query("dir") === "asc" ? "asc" : "desc",
+      limit: numParam(c.req.query("limit"), 100, 1, 1000),
+      offset: numParam(c.req.query("offset"), 0, 0, 1e7),
+    })
+  );
+});
+
+app.get("/api/targets", (c) => {
+  const range = parseRange(c.req.query("from"), c.req.query("to"));
+  if (typeof range === "string") return c.json({ error: range }, 400);
+  return c.json(getTargets(range, numParam(c.req.query("targetAcos"), 0.3, 0.01, 5), c.req.query("campaignId") || undefined));
 });
 
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

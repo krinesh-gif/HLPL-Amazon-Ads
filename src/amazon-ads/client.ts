@@ -39,3 +39,27 @@ export async function adsApiFetch<T>(
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
 }
+
+/**
+ * Pages through a v3 "list" endpoint (POST + vendor content-type, `nextToken` cursor)
+ * and returns every item under `key`. All the SP v3 list calls share this shape.
+ */
+export async function listAllV3<T>(
+  path: string,
+  contentType: string,
+  key: string,
+  body: Record<string, unknown> = {}
+): Promise<T[]> {
+  const items: T[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await adsApiFetch<Record<string, unknown> & { nextToken?: string }>(path, {
+      method: "POST",
+      body: { maxResults: 1000, ...body, ...(nextToken ? { nextToken } : {}) },
+      headers: { "Content-Type": contentType, Accept: contentType },
+    });
+    items.push(...((page[key] as T[] | undefined) ?? []));
+    nextToken = page.nextToken || undefined;
+  } while (nextToken);
+  return items;
+}

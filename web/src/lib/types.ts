@@ -17,7 +17,8 @@ export interface Meta {
   minDate: string | null;
   maxDate: string | null;
   profile: { profileId: string; countryCode: string; currencyCode: string; accountName: string | null } | null;
-  counts: { campaigns: number; dailyRows: number };
+  counts: { campaigns: number; dailyRows: number; targets: number; searchTermRows: number };
+  searchTerms: { minDate: string | null; maxDate: string | null };
 }
 export interface Overview {
   range: Range;
@@ -74,4 +75,48 @@ export interface SyncStatus {
   lastSuccess: { job: string; finishedAt: string }[];
   recentRuns: SyncRun[];
   counts: { campaigns: number; dailyRows: number };
+}
+
+export interface SearchTermRow extends Totals {
+  key: string;
+  searchTerm: string;
+  isAsin: boolean;
+  campaignId: string;
+  campaignName: string | null;
+  adGroupId: string;
+  adGroupName: string | null;
+  sourceText: string | null;
+  sourceKind: string | null;
+  matchType: string | null;
+  sourceCount: number;
+  hasExactKeyword: boolean;
+  negated: boolean;
+  action: null | { type: "harvest" | "negate"; label: string; reason: string };
+}
+export interface SearchTermsResponse {
+  range: Range;
+  counts: { all: number; harvest: number; negate: number };
+  total: number;
+  totals: Totals;
+  rows: SearchTermRow[];
+}
+export interface TargetRow extends Totals {
+  targetId: string;
+  kind: "keyword" | "product" | "auto";
+  text: string;
+  matchType: string | null;
+  state: string | null;
+  campaignId: string;
+  campaignName: string | null;
+  adGroupId: string;
+  adGroupName: string | null;
+  bid: number | null;
+  bidIsDefault: boolean;
+  suggestedBid: number | null;
+  suggestion: string;
+}
+export interface TargetsResponse {
+  range: Range;
+  accountCvr: number;
+  rows: TargetRow[];
 }

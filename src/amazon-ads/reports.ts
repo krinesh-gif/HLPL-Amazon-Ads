@@ -96,3 +96,59 @@ export function spCampaignDailyReportRequest(startDate: string, endDate: string)
     },
   };
 }
+
+/** Request → poll → download in one call. */
+export async function runReport<T>(request: ReportRequest): Promise<T[]> {
+  const reportId = await requestReport(request);
+  console.log(`  report ${request.name} requested (id=${reportId}), waiting...`);
+  return downloadReport<T>(await waitForReport(reportId));
+}
+
+/**
+ * Daily performance per keyword / product target / auto-target group.
+ * `keywordId` in this report is the keywordId for keywords and the targetId for targets.
+ * Column names follow Amazon's v3 spTargeting docs — not yet verified against the live
+ * API from this repo (no credentials yet); check the first real run.
+ */
+export function spTargetingDailyReportRequest(startDate: string, endDate: string): ReportRequest {
+  return {
+    name: `sp-targeting-daily-${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    configuration: {
+      adProduct: "SPONSORED_PRODUCTS",
+      groupBy: ["targeting"],
+      columns: [
+        "date", "campaignId", "adGroupId", "keywordId", "keyword", "keywordType", "matchType",
+        "targeting", "impressions", "clicks", "cost", "sales14d", "purchases14d",
+      ],
+      reportTypeId: "spTargeting",
+      timeUnit: "DAILY",
+      format: "GZIP_JSON",
+    },
+  };
+}
+
+/**
+ * Daily performance per customer search term, per keyword/target that matched it.
+ * Amazon only keeps search-term data for a limited window (roughly the last 60–90 days),
+ * so sync it regularly. Same caveat as above on column names.
+ */
+export function spSearchTermDailyReportRequest(startDate: string, endDate: string): ReportRequest {
+  return {
+    name: `sp-search-terms-daily-${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    configuration: {
+      adProduct: "SPONSORED_PRODUCTS",
+      groupBy: ["searchTerm"],
+      columns: [
+        "date", "campaignId", "adGroupId", "keywordId", "keyword", "keywordType", "matchType",
+        "targeting", "searchTerm", "impressions", "clicks", "cost", "sales14d", "purchases14d",
+      ],
+      reportTypeId: "spSearchTerm",
+      timeUnit: "DAILY",
+      format: "GZIP_JSON",
+    },
+  };
+}

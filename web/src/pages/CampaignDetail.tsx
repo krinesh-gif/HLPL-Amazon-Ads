@@ -40,6 +40,10 @@ export function CampaignDetailPage({ range, params, targetAcos, id }: PageProps 
               <div><dt>Daily budget</dt><dd>{fmtINR(c.dailyBudget)}</dd></div>
               <div><dt>Target ACOS</dt><dd>{fmtPct(targetAcos, 0)}</dd></div>
             </dl>
+            <div className="detail-links">
+              <a className="btn" href={href("/keywords", { ...range, campaignId: id, kind: "all" })}>Keywords & targets</a>
+              <a className="btn" href={href("/search-terms", { ...range, campaignId: id })}>Search terms</a>
+            </div>
           </div>
         ) : <Skeleton h={48} />}
       </Card>

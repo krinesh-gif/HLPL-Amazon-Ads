@@ -7,6 +7,9 @@ import type { SyncStatus } from "../lib/types";
 const JOBS = [
   { job: "campaigns", label: "Campaign settings", cmd: "npm run sync:campaigns", every: "daily" },
   { job: "reports", label: "Daily performance (AMS report)", cmd: "npm run sync:reports", every: "daily" },
+  { job: "keywords", label: "Keywords, targets & negatives", cmd: "npm run sync:keywords", every: "daily" },
+  { job: "targeting", label: "Keyword/target performance", cmd: "npm run sync:targeting", every: "daily" },
+  { job: "search-terms", label: "Search terms", cmd: "npm run sync:search-terms", every: "daily" },
   { job: "profiles", label: "Advertising profiles", cmd: "npm run sync:profiles", every: "once" },
 ];
 
@@ -53,11 +56,13 @@ export function SyncPage({ meta }: PageProps) {
           <div><dt>Profile</dt><dd>{meta.profile ? `${meta.profile.accountName ?? meta.profile.profileId} (${meta.profile.countryCode})` : "—"}</dd></div>
           <div><dt>Campaigns</dt><dd>{fmtCount(meta.counts.campaigns)}</dd></div>
           <div><dt>Daily rows</dt><dd>{fmtCount(meta.counts.dailyRows)}</dd></div>
+          <div><dt>Keywords & targets</dt><dd>{fmtCount(meta.counts.targets)}</dd></div>
+          <div><dt>Search-term rows</dt><dd>{fmtCount(meta.counts.searchTermRows)}</dd></div>
           <div><dt>Data range</dt><dd>{meta.minDate ? `${meta.minDate} → ${meta.maxDate}` : "—"}</dd></div>
         </dl>
         <p className="muted small">
-          Syncs run from the command line; there's no scheduler yet. Amazon revises attributed sales for up to 14 days,
-          so the daily job should re-pull at least the last 14 days (<code>npm run sync:reports -- 14</code>).
+          Syncs run from the command line; there's no scheduler yet. <code>npm run sync:all</code> is the daily job:
+          settings plus the last 14 days of every report (Amazon revises attributed sales for up to 14 days).
         </p>
       </Card>
 

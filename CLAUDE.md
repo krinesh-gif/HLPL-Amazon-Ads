@@ -28,6 +28,15 @@ slice, but relevant context if asked to integrate order/inventory data later.
   `src/config/paths.ts` holds `DB_PATH` separately so the dashboard boots without Amazon creds;
   Amazon-calling code still validates eagerly via `env.ts`. The server has **no auth** and binds
   127.0.0.1 — add auth before any hosting.
+- **Slice three (keywords & search terms) added**: `adGroups.ts`, `keywords.ts`, `targets.ts`,
+  `negativeKeywords.ts` (v3 list endpoints, paged via `listAllV3` in `client.ts`) + `spTargeting`
+  and `spSearchTerm` report builders in `reports.ts`; syncs `sync:keywords`, `sync:targeting`,
+  `sync:search-terms`, `sync:all`. Keywords and targets share `sp_targets` (reports put both ids in
+  `keywordId`). Dashboard screens Keywords (suggested bids) and Search terms (harvest/negate) are
+  **suggestions only** — no writes. Report columns and list shapes are from docs, unverified live.
+- Fixed in slice three: `campaigns.ts` was typed with v2 fields on the v3 endpoint (v3 has uppercase
+  enums and `budget.budget`, not `dailyBudget`) and didn't paginate; reports now split into ≤31-day
+  windows.
 - SQLite (`better-sqlite3`) is the deliberate stopgap datastore — see README for when
   to swap it for Postgres.
 - **Krinesh does not yet have Amazon Ads API credentials.** He needs to register as an

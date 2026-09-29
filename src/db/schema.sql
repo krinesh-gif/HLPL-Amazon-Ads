@@ -58,3 +58,74 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- ---- Keywords, targets and search terms (slice three) ----
+-- Enum values (state, match type) are stored lower-case, as with sp_campaigns.
+
+CREATE TABLE IF NOT EXISTS sp_ad_groups (
+  ad_group_id  TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  default_bid  REAL,
+  synced_at    TEXT NOT NULL
+);
+
+-- Keywords and targeting clauses share one table: Amazon's reports put both ids in the
+-- same `keywordId` column, and the dashboard lists them side by side.
+CREATE TABLE IF NOT EXISTS sp_targets (
+  target_id    TEXT PRIMARY KEY,       -- keywordId for keywords, targetId for targets
+  kind         TEXT NOT NULL,          -- 'keyword' | 'product' | 'auto'
+  campaign_id  TEXT NOT NULL,
+  ad_group_id  TEXT NOT NULL,
+  text         TEXT NOT NULL,          -- keyword text, or e.g. asin="B0…" / close-match
+  match_type   TEXT,                   -- exact | phrase | broad (keywords only)
+  state        TEXT NOT NULL,
+  bid          REAL,                   -- NULL = ad group default bid
+  synced_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sp_targets_campaign ON sp_targets (campaign_id);
+
+CREATE TABLE IF NOT EXISTS sp_negative_keywords (
+  negative_id  TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  ad_group_id  TEXT,                   -- NULL = campaign-level negative
+  text         TEXT NOT NULL,
+  match_type   TEXT NOT NULL,          -- negative_exact | negative_phrase
+  synced_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sp_target_daily_metrics (
+  date           TEXT NOT NULL,
+  target_id      TEXT NOT NULL,
+  campaign_id    TEXT NOT NULL,
+  ad_group_id    TEXT NOT NULL,
+  text           TEXT,                 -- as reported (keyword or targeting expression)
+  match_type     TEXT,
+  impressions    INTEGER NOT NULL DEFAULT 0,
+  clicks         INTEGER NOT NULL DEFAULT 0,
+  cost           REAL NOT NULL DEFAULT 0,
+  sales_14d      REAL NOT NULL DEFAULT 0,
+  purchases_14d  INTEGER NOT NULL DEFAULT 0,
+  synced_at      TEXT NOT NULL,
+  PRIMARY KEY (date, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sp_target_daily_target ON sp_target_daily_metrics (target_id, date);
+
+CREATE TABLE IF NOT EXISTS sp_search_term_daily_metrics (
+  date           TEXT NOT NULL,
+  search_term    TEXT NOT NULL,
+  target_id      TEXT NOT NULL,        -- keyword/target that matched the search
+  campaign_id    TEXT NOT NULL,
+  ad_group_id    TEXT NOT NULL,
+  targeting      TEXT,                 -- keyword text or expression, as reported
+  match_type     TEXT,
+  impressions    INTEGER NOT NULL DEFAULT 0,
+  clicks         INTEGER NOT NULL DEFAULT 0,
+  cost           REAL NOT NULL DEFAULT 0,
+  sales_14d      REAL NOT NULL DEFAULT 0,
+  purchases_14d  INTEGER NOT NULL DEFAULT 0,
+  synced_at      TEXT NOT NULL,
+  PRIMARY KEY (date, target_id, search_term)
+);
+CREATE INDEX IF NOT EXISTS idx_sp_st_daily_campaign ON sp_search_term_daily_metrics (campaign_id, date);

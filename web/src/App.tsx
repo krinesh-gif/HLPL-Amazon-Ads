@@ -10,6 +10,8 @@ import type { Meta, Range } from "./lib/types";
 import { CampaignDetailPage } from "./pages/CampaignDetail";
 import { CampaignsPage } from "./pages/Campaigns";
 import { InsightsPage } from "./pages/Insights";
+import { KeywordsPage } from "./pages/Keywords";
+import { SearchTermsPage } from "./pages/SearchTerms";
 import { OverviewPage } from "./pages/Overview";
 import { SyncPage } from "./pages/Sync";
 
@@ -23,12 +25,14 @@ export interface PageProps {
 const NAV = [
   { path: "/", label: "Overview", icon: "M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" },
   { path: "/campaigns", label: "Campaigns", icon: "M4 6h16M4 12h16M4 18h10" },
+  { path: "/keywords", label: "Keywords", icon: "M4 7h16M4 12h10M4 17h7M17 14l3 3-3 3" },
+  { path: "/search-terms", label: "Search terms", icon: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-4-4" },
   { path: "/insights", label: "Insights", icon: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z" },
   { path: "/sync", label: "Sync status", icon: "M20 11A8 8 0 0 0 6.3 5.3L4 8m0-4v4h4m-4 5a8 8 0 0 0 13.7 5.7L20 16m0 4v-4h-4" },
 ];
 
 // Mirrors the rest of Nola's feature set — listed so the roadmap is visible, not clickable yet.
-const COMING = ["Search terms", "Keywords & targets", "Sponsored Brands / Display", "Rules (staged)", "Ready-to-deploy queue"];
+const COMING = ["Sponsored Brands / Display", "Rules (staged)", "Ready-to-deploy queue"];
 
 function Icon({ d }: { d: string }) {
   return (
@@ -83,6 +87,8 @@ export function App() {
     else if (route.path === "/campaigns") page = <CampaignsPage {...props} />;
     else if (route.path.startsWith("/campaigns/"))
       page = <CampaignDetailPage {...props} id={decodeURIComponent(route.path.slice("/campaigns/".length))} />;
+    else if (route.path === "/keywords") page = <KeywordsPage {...props} />;
+    else if (route.path === "/search-terms") page = <SearchTermsPage {...props} />;
     else if (route.path === "/insights")
       page = <InsightsPage {...props} onTargetAcos={setTargetAcos} />;
     else if (route.path === "/sync") page = <SyncPage {...props} />;
@@ -149,7 +155,7 @@ export function App() {
           <a key={n.path} href={href(n.path, keepRange)} className={section === n.path ? "active" : ""}
             aria-current={section === n.path ? "page" : undefined}>
             <Icon d={n.icon} />
-            <span>{n.label.split(" ")[0]}</span>
+            <span>{n.path === "/search-terms" ? "Terms" : n.label.split(" ")[0]}</span>
           </a>
         ))}
       </nav>

@@ -316,3 +316,38 @@ input[type="search"], input[type="date"], input[type="number"], select {
   .toolbar .seg { order: 3; width: 100%; }
   .toolbar .seg button { flex: 1; padding: 0 6px; }
 }
+
+/* ---------- Keywords & search terms ---------- */
+.term-cell { min-width: 150px; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; max-width: 360px; white-space: normal; }
+.term-cell strong { font-weight: 600; overflow-wrap: anywhere; }
+.term-cell .block { flex-basis: 100%; }
+.pill.kind-keyword, .pill.kind-exact, .pill.kind-phrase, .pill.kind-broad { background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--text); }
+.pill.kind-product { background: color-mix(in srgb, var(--series-2) 16%, transparent); color: var(--text); }
+.pill.kind-auto { background: var(--surface-2); color: var(--text-2); }
+.source { display: inline-block; min-width: 180px; max-width: 300px; white-space: normal; }
+.source-text { font-weight: 520; }
+.truncate-sm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.action { display: inline-block; min-width: 200px; max-width: 260px; white-space: normal; }
+.action-label { font-weight: 600; }
+.action-harvest .action-label { color: var(--good); }
+.action-negate .action-label { color: var(--bad); }
+.suggest { display: inline-block; text-align: right; white-space: normal; min-width: 130px; max-width: 200px; }
+.suggest .up { color: var(--good); }
+.suggest .down { color: var(--bad); }
+.rules { display: grid; gap: 6px; }
+.rules input { width: 56px; height: 28px; margin: 0 6px; padding: 0 6px; }
+.notice { margin-top: 8px; }
+.pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.check { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.campaign-select { max-width: 240px; }
+.show-sm { display: none; }
+.detail-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.detail-links .btn { text-decoration: none; }
+.table.campaigns td.sticky-col { white-space: normal; }
+@media (max-width: 640px) {
+  .campaign-select { max-width: none; flex: 1 1 100%; }
+  .term-cell { min-width: 120px; max-width: 190px; }
+  .source, .truncate-sm, .action { max-width: 200px; }
+  .tabbar a span { font-size: 10.5px; }
+  .term-cell .show-sm { display: block; }
+}

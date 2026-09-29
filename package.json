@@ -19,6 +19,10 @@
     "sync:profiles": "tsx src/cli.ts sync:profiles",
     "sync:campaigns": "tsx src/cli.ts sync:campaigns",
     "sync:reports": "tsx src/cli.ts sync:reports",
+    "sync:keywords": "tsx src/cli.ts sync:keywords",
+    "sync:targeting": "tsx src/cli.ts sync:targeting",
+    "sync:search-terms": "tsx src/cli.ts sync:search-terms",
+    "sync:all": "tsx src/cli.ts sync:all",
     "db:init": "tsx src/cli.ts db:init",
     "db:seed-demo": "tsx scripts/seed-demo.ts"
   },
