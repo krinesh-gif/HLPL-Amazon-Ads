@@ -4,14 +4,15 @@ import { InsightItem } from "../components/InsightItem";
 import { TrendChart } from "../components/TrendChart";
 import { Card, Delta, Empty, ErrorBox, Skeleton, StatePill } from "../components/Ui";
 import { prefetch, qs, useApi } from "../lib/api";
+import { AD_COLOR, AD_LABEL, AD_ORDER, AD_SHORT, campaignApi, campaignHref } from "../lib/adProducts";
 import { fmtINR, fmtPct, fmtRange, fmtRatio } from "../lib/format";
 import { computeInsights } from "../lib/insights";
 import { KPI_ORDER, METRICS, change, type MetricKey } from "../lib/metrics";
 import { href, navigate } from "../lib/router";
 import type { CampaignsResponse, Overview } from "../lib/types";
 
-export function OverviewPage({ range, meta, targetAcos, params }: PageProps) {
-  const q = qs({ from: range.from, to: range.to });
+export function OverviewPage({ range, meta, targetAcos, params, ad }: PageProps) {
+  const q = qs({ from: range.from, to: range.to, ...(ad ? { ad } : {}) });
   const ov = useApi<Overview>(`/api/overview?${q}`);
   const cs = useApi<CampaignsResponse>(`/api/campaigns?${q}`);
   const metric = (params.get("metric") as MetricKey) || "sales";
@@ -98,8 +99,10 @@ export function OverviewPage({ range, meta, targetAcos, params }: PageProps) {
         </Card>
       </div>
 
+      {!ad && d && d.byProduct.length > 1 && <ByAdType d={d} />}
+
       <div className="grid-2 wide-left">
-        <Card title="Top campaigns by spend" actions={<a className="link" href={href("/campaigns", range)}>All campaigns →</a>}>
+        <Card title="Top campaigns by spend" actions={<a className="link" href={href("/campaigns", { ...range, ...(ad ? { ad } : {}) })}>All campaigns →</a>}>
           {cs.data ? (
             <div className="table-wrap">
               <table className="table compact">
@@ -109,10 +112,9 @@ export function OverviewPage({ range, meta, targetAcos, params }: PageProps) {
                 <tbody>
                   {cs.data.campaigns.filter((c) => c.cost > 0).slice(0, 8).map((c) => {
                     const a = c.sales > 0 ? c.cost / c.sales : null;
-                    const url = `/campaigns/${encodeURIComponent(c.campaignId)}`;
                     return (
-                      <tr key={c.campaignId} onMouseEnter={() => prefetch(`/api/campaigns/${encodeURIComponent(c.campaignId)}?${q}`)}>
-                        <td className="name-cell"><a href={href(url, range)}>{c.name}</a> <StatePill state={c.state} /></td>
+                      <tr key={`${c.adProduct}:${c.campaignId}`} onMouseEnter={() => prefetch(campaignApi(c, range))}>
+                        <td className="name-cell">{!ad && <span className={`pill ad-${c.adProduct}`}>{AD_SHORT[c.adProduct]}</span>} <a href={campaignHref(c, range)}>{c.name}</a> <StatePill state={c.state} /></td>
                         <td className="num">{fmtINR(c.cost)}</td>
                         <td className="num">{fmtINR(c.sales)}</td>
                         <td className={`num ${a == null || a > targetAcos ? "over" : ""}`}>{fmtPct(a)}</td>
@@ -127,7 +129,7 @@ export function OverviewPage({ range, meta, targetAcos, params }: PageProps) {
         </Card>
 
         <Card title="Needs attention" subtitle={`Target ACOS ${fmtPct(targetAcos, 0)}`}
-          actions={<a className="link" href={href("/insights", range)}>All {insights.length} →</a>}>
+          actions={<a className="link" href={href("/insights", { ...range, ...(ad ? { ad } : {}) })}>All {insights.length} →</a>}>
           {cs.data ? (
             insights.length ? (
               <ul className="insight-list">
@@ -138,5 +140,45 @@ export function OverviewPage({ range, meta, targetAcos, params }: PageProps) {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** Spend split by ad type: a share bar per row (one scale, so bars compare directly) plus efficiency. */
+function ByAdType({ d }: { d: Overview }) {
+  const total = d.byProduct.reduce((t, p) => t + p.cost, 0);
+  const rows = AD_ORDER.map((a) => ({ a, cur: d.byProduct.find((p) => p.adProduct === a), prev: d.previousByProduct.find((p) => p.adProduct === a) }))
+    .filter((r) => r.cur);
+  return (
+    <Card title="By ad type" subtitle="Share of spend, and how efficiently each ad type turns it into sales">
+      <div className="table-wrap">
+        <table className="table compact by-ad">
+          <thead>
+            <tr><th>Ad type</th><th className="share-col">Share of spend</th><th className="num">Spend</th><th className="num hide-sm">Δ</th><th className="num">Sales</th><th className="num">ACOS</th><th className="num hide-sm">ROAS</th><th className="num hide-sm">Orders</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(({ a, cur, prev }) => {
+              const share = total ? cur!.cost / total : 0;
+              const acos = cur!.sales ? cur!.cost / cur!.sales : null;
+              return (
+                <tr key={a}>
+                  <td><span className="swatch-dot" style={{ background: AD_COLOR[a] }} aria-hidden="true" />{AD_LABEL[a]}</td>
+                  <td className="share-col">
+                    <span className="share-bar" title={fmtPct(share)}><span style={{ width: `${share * 100}%`, background: AD_COLOR[a] }} /></span>
+                    <span className="share-label">{fmtPct(share, 0)}</span>
+                  </td>
+                  <td className="num">{fmtINR(cur!.cost)}</td>
+                  <td className="num hide-sm"><Delta value={change(cur!.cost, prev?.cost ?? null)} metric={METRICS.cost} /></td>
+                  <td className="num">{fmtINR(cur!.sales)}</td>
+                  <td className="num">{fmtPct(acos)}</td>
+                  <td className="num hide-sm">{fmtRatio(acos ? 1 / acos : null)}</td>
+                  <td className="num hide-sm">{cur!.orders.toLocaleString("en-IN")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small table-note">Attribution differs by ad type: SP and SB count 14-day clicks; SD also counts views.</p>
+    </Card>
   );
 }

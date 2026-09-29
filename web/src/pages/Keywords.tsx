@@ -144,6 +144,7 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
   return (
     <div className="stack">
       <Card>
+        <p className="eyebrow">Sponsored Products</p>
         <div className="toolbar">
           <div className="seg" role="group" aria-label="Type">
             {KINDS.map((k) => (

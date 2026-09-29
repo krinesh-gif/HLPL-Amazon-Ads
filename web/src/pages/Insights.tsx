@@ -6,8 +6,8 @@ import { qs, useApi } from "../lib/api";
 import { computeInsights, SEVERITY_LABEL, type Severity } from "../lib/insights";
 import type { CampaignsResponse } from "../lib/types";
 
-export function InsightsPage({ range, targetAcos, onTargetAcos }: PageProps & { onTargetAcos: (v: number) => void }) {
-  const { data, error } = useApi<CampaignsResponse>(`/api/campaigns?${qs({ from: range.from, to: range.to })}`);
+export function InsightsPage({ range, targetAcos, onTargetAcos, ad }: PageProps & { onTargetAcos: (v: number) => void }) {
+  const { data, error } = useApi<CampaignsResponse>(`/api/campaigns?${qs({ from: range.from, to: range.to, ...(ad ? { ad } : {}) })}`);
   const [filter, setFilter] = useState<Severity | "all">("all");
   const insights = useMemo(() => (data ? computeInsights(data.campaigns, targetAcos) : []), [data, targetAcos]);
   const counts = insights.reduce<Record<string, number>>((m, i) => ((m[i.severity] = (m[i.severity] ?? 0) + 1), m), {});

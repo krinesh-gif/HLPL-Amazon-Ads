@@ -6,7 +6,8 @@ import { presetRange, yesterday } from "./lib/dates";
 import { fmtDay } from "./lib/format";
 import { usePref } from "./lib/prefs";
 import { href, navigate, useRoute } from "./lib/router";
-import type { Meta, Range } from "./lib/types";
+import { AD_ORDER, AD_SHORT, AD_LABEL } from "./lib/adProducts";
+import type { AdProduct, Meta, Range } from "./lib/types";
 import { CampaignDetailPage } from "./pages/CampaignDetail";
 import { CampaignsPage } from "./pages/Campaigns";
 import { InsightsPage } from "./pages/Insights";
@@ -20,6 +21,8 @@ export interface PageProps {
   meta: Meta;
   targetAcos: number;
   params: URLSearchParams;
+  /** Ad-type filter from the header switch; null = all ad types. */
+  ad: AdProduct | null;
 }
 
 const NAV = [
@@ -32,7 +35,7 @@ const NAV = [
 ];
 
 // Mirrors the rest of Nola's feature set — listed so the roadmap is visible, not clickable yet.
-const COMING = ["Sponsored Brands / Display", "Rules (staged)", "Ready-to-deploy queue"];
+const COMING = ["SB / SD keywords & targets", "Rules (staged)", "Ready-to-deploy queue"];
 
 function Icon({ d }: { d: string }) {
   return (
@@ -71,7 +74,22 @@ export function App() {
     p.set("to", r.to);
     navigate(route.path, p, true);
   };
-  const keepRange = { from: range.from, to: range.to };
+  const adParam = route.params.get("ad");
+  const ad: AdProduct | null = adParam === "sp" || adParam === "sb" || adParam === "sd" ? adParam : null;
+  // Range and ad-type filter carry across the main nav.
+  const keepRange: Record<string, string> = { from: range.from, to: range.to, ...(ad ? { ad } : {}) };
+  const setAd = (next: AdProduct | null) => {
+    const p = new URLSearchParams(route.params);
+    p.set("from", range.from);
+    p.set("to", range.to);
+    if (next) p.set("ad", next);
+    else p.delete("ad");
+    navigate(route.path, p, true);
+  };
+  // Only the screens that cover every ad type get the switch.
+  const adSwitchPaths = ["/", "/campaigns", "/insights"];
+  const products = meta.data ? AD_ORDER.filter((a) => meta.data!.adProducts.includes(a)) : [];
+  const showAdSwitch = adSwitchPaths.includes(route.path) && products.length > 1;
 
   useEffect(() => window.scrollTo(0, 0), [route.path]);
 
@@ -82,7 +100,7 @@ export function App() {
   let page: React.ReactNode = null;
   if (meta.error) page = <ErrorBox message={`${meta.error} — is the API server running?`} />;
   else if (meta.data) {
-    const props: PageProps = { range, meta: meta.data, targetAcos, params: route.params };
+    const props: PageProps = { range, meta: meta.data, targetAcos, params: route.params, ad: adSwitchPaths.includes(route.path) ? ad : null };
     if (route.path === "/") page = <OverviewPage {...props} />;
     else if (route.path === "/campaigns") page = <CampaignsPage {...props} />;
     else if (route.path.startsWith("/campaigns/"))
@@ -104,7 +122,7 @@ export function App() {
           </span>
           <span>
             <strong>Aravi Ads</strong>
-            <small className="muted">Amazon.in · Sponsored Products</small>
+            <small className="muted">Amazon.in · Sponsored ads</small>
           </span>
         </a>
         <nav className="side-nav" aria-label="Main">
@@ -139,6 +157,14 @@ export function App() {
             )}
           </div>
           <div className="topbar-actions">
+            {showAdSwitch && (
+              <div className="seg ad-switch" role="group" aria-label="Ad type">
+                <button className={!ad ? "active" : ""} onClick={() => setAd(null)}>All</button>
+                {products.map((p) => (
+                  <button key={p} className={ad === p ? "active" : ""} onClick={() => setAd(p)} title={AD_LABEL[p]}>{AD_SHORT[p]}</button>
+                ))}
+              </div>
+            )}
             {meta.data && route.path !== "/sync" && (
               <DateRangePicker range={range} anchor={anchor} minDate={meta.data.minDate} onChange={setRange} />
             )}

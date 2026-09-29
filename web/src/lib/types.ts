@@ -19,6 +19,7 @@ export interface Meta {
   profile: { profileId: string; countryCode: string; currencyCode: string; accountName: string | null } | null;
   counts: { campaigns: number; dailyRows: number; targets: number; searchTermRows: number };
   searchTerms: { minDate: string | null; maxDate: string | null };
+  adProducts: AdProduct[];
 }
 export interface Overview {
   range: Range;
@@ -27,8 +28,13 @@ export interface Overview {
   previous: Totals;
   daily: DailyPoint[];
   previousDaily: DailyPoint[];
+  byProduct: (Totals & { adProduct: AdProduct })[];
+  previousByProduct: (Totals & { adProduct: AdProduct })[];
 }
+export type AdProduct = "sp" | "sb" | "sd";
+
 export interface CampaignRow extends Totals {
+  adProduct: AdProduct;
   campaignId: string;
   name: string;
   state: string | null;
@@ -48,6 +54,7 @@ export interface CampaignDetail {
   range: Range;
   previousRange: Range;
   campaign: {
+    adProduct: AdProduct;
     campaignId: string;
     name: string;
     state?: string;

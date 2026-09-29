@@ -3,13 +3,15 @@ import { TrendChart } from "../components/TrendChart";
 import { Card, Delta, ErrorBox, Skeleton, StatePill } from "../components/Ui";
 import { qs, useApi } from "../lib/api";
 import { fmtCount, fmtDay, fmtINR, fmtPct, fmtRange } from "../lib/format";
+import { AD_LABEL } from "../lib/adProducts";
 import { KPI_ORDER, METRICS, change, type MetricKey } from "../lib/metrics";
 import { href, navigate } from "../lib/router";
 import type { CampaignDetail } from "../lib/types";
 
 export function CampaignDetailPage({ range, params, targetAcos, id }: PageProps & { id: string }) {
   const q = qs({ from: range.from, to: range.to });
-  const { data, error } = useApi<CampaignDetail>(`/api/campaigns/${encodeURIComponent(id)}?${q}`);
+  const type = params.get("type");
+  const { data, error } = useApi<CampaignDetail>(`/api/campaigns/${encodeURIComponent(id)}?${q}${type ? `&ad=${type}` : ""}`);
   const metric = (params.get("metric") as MetricKey) || "cost";
   const def = METRICS[metric] ?? METRICS.cost;
 
@@ -30,8 +32,8 @@ export function CampaignDetailPage({ range, params, targetAcos, id }: PageProps 
             <div>
               <h2 className="detail-title">{c.name}</h2>
               <p className="muted small">
-                ID {c.campaignId}
-                {c.targetingType && <> · {c.targetingType} targeting</>}
+                {AD_LABEL[c.adProduct]} · ID {c.campaignId}
+                {c.targetingType && <> · {c.targetingType}{c.adProduct === "sp" ? " targeting" : ""}</>}
                 {c.startDate && <> · since {fmtDay(c.startDate, true)}</>}
               </p>
             </div>
@@ -40,10 +42,10 @@ export function CampaignDetailPage({ range, params, targetAcos, id }: PageProps 
               <div><dt>Daily budget</dt><dd>{fmtINR(c.dailyBudget)}</dd></div>
               <div><dt>Target ACOS</dt><dd>{fmtPct(targetAcos, 0)}</dd></div>
             </dl>
-            <div className="detail-links">
+            {c.adProduct === "sp" && <div className="detail-links">
               <a className="btn" href={href("/keywords", { ...range, campaignId: id, kind: "all" })}>Keywords & targets</a>
               <a className="btn" href={href("/search-terms", { ...range, campaignId: id })}>Search terms</a>
-            </div>
+            </div>}
           </div>
         ) : <Skeleton h={48} />}
       </Card>

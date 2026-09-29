@@ -152,3 +152,41 @@ export function spSearchTermDailyReportRequest(startDate: string, endDate: strin
     },
   };
 }
+
+/**
+ * Daily Sponsored Brands campaign performance. SB and SD name their attributed metrics
+ * `sales` / `purchases` (SP uses `sales14d` / `purchases14d`); both are 14-day windows,
+ * and SD's also counts view-through conversions.
+ */
+export function sbCampaignDailyReportRequest(startDate: string, endDate: string): ReportRequest {
+  return {
+    name: `sb-campaigns-daily-${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    configuration: {
+      adProduct: "SPONSORED_BRANDS",
+      groupBy: ["campaign"],
+      columns: ["date", "campaignId", "campaignName", "impressions", "clicks", "cost", "sales", "purchases"],
+      reportTypeId: "sbCampaigns",
+      timeUnit: "DAILY",
+      format: "GZIP_JSON",
+    },
+  };
+}
+
+/** Daily Sponsored Display campaign performance (see note on sbCampaignDailyReportRequest). */
+export function sdCampaignDailyReportRequest(startDate: string, endDate: string): ReportRequest {
+  return {
+    name: `sd-campaigns-daily-${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    configuration: {
+      adProduct: "SPONSORED_DISPLAY",
+      groupBy: ["campaign"],
+      columns: ["date", "campaignId", "campaignName", "impressions", "clicks", "cost", "sales", "purchases"],
+      reportTypeId: "sdCampaigns",
+      timeUnit: "DAILY",
+      format: "GZIP_JSON",
+    },
+  };
+}

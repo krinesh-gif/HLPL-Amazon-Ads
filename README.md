@@ -51,7 +51,8 @@ npm run dev         # same dev server on your real data/aravi-ads.sqlite → htt
 npm run build && npm start   # production build, served at http://127.0.0.1:8787
 ```
 
-Screens (modelled on Nola's, read-only):
+Screens (modelled on Nola's, read-only). Overview, Campaigns and Insights have an
+**All / SP / SB / SD** ad-type switch; the Overview also splits spend and ACOS by ad type.
 - **Overview** — 10 KPI tiles (Spend, Sales, ACOS, ROAS, Orders, Impressions, Clicks, CTR, CPC,
   CVR) with change vs the previous period; click a tile to chart it against the previous period;
   spend vs sales trend; top campaigns; "needs attention" list.
@@ -139,14 +140,19 @@ npm run sync:reports -- 30   # or a different number of days back
 npm run sync:keywords     # ad groups, keywords, product/auto targets, negative keywords (current settings)
 npm run sync:targeting    # daily performance per keyword/target (default last 14 days)
 npm run sync:search-terms # daily customer search terms (default last 14 days; run `-- 60` once to backfill)
-npm run sync:all          # the daily job: campaigns + keywords + last 14 days of all three reports
+npm run sync:sb           # Sponsored Brands campaigns + daily performance (default last 14 days)
+npm run sync:sd           # Sponsored Display campaigns + daily performance (default last 14 days)
+npm run sync:all          # the daily job: everything above, last 14 days; one failing job doesn't stop the rest
 ```
 
 Report syncs split longer ranges into ≤31-day windows automatically (Amazon's per-report limit).
 Amazon keeps search-term data only for a limited window (roughly 60–90 days), so backfill
 it early and then keep `sync:all` running daily.
 
-**Not yet verified against the live API:** the `spTargeting` / `spSearchTerm` report columns and
+SB needs Brand Registry; without it `sync:sb` gets a 401/403 and `sync:all` logs that and carries on.
+
+**Not yet verified against the live API:** the SB v4 / SD campaign list shapes and the
+`sbCampaigns` / `sdCampaigns` report columns (`sales`, `purchases`), and the `spTargeting` / `spSearchTerm` report columns and
 the v3 list endpoints for ad groups, keywords, targets and negatives follow Amazon's docs but
 haven't run against a real account from this repo. Check the first real `sync:all` output.
 
@@ -157,9 +163,8 @@ sqlite3 data/aravi-ads.sqlite "select date, campaign_name, cost, sales_14d from 
 
 ## Notes and near-term TODOs
 
-- **Only Sponsored Products is wired up.** Sponsored Brands and Sponsored Display use
-  slightly different endpoints/content-types (see the comment in `campaigns.ts`) —
-  copy that file's shape for `sbCampaigns.ts` / `sdCampaigns.ts` when you get here.
+- **SB and SD are campaign-level only.** Keywords, targets and search terms are Sponsored
+  Products only for now; SB/SD keyword and targeting reports are the next step for those.
 - **No scheduling yet.** `npm run sync:reports` is manual. Once this is proven reliable,
   wrap it in a cron job / scheduled task (matches the "Daily AMS Fetch" job on Nola's
   Refetch Config screen) rather than building a scheduler from scratch.

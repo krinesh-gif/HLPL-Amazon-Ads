@@ -129,3 +129,82 @@ CREATE TABLE IF NOT EXISTS sp_search_term_daily_metrics (
   PRIMARY KEY (date, target_id, search_term)
 );
 CREATE INDEX IF NOT EXISTS idx_sp_st_daily_campaign ON sp_search_term_daily_metrics (campaign_id, date);
+
+-- ---- Sponsored Brands & Sponsored Display (slice four) ----
+-- Own tables per ad product (each API has its own shape), unified for the
+-- dashboard by the all_campaigns / all_campaign_daily views below.
+
+CREATE TABLE IF NOT EXISTS sb_campaigns (
+  campaign_id  TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  budget       REAL,
+  budget_type  TEXT,                  -- daily | lifetime
+  cost_type    TEXT,
+  start_date   TEXT,
+  end_date     TEXT,
+  synced_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sd_campaigns (
+  campaign_id  TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  tactic       TEXT,                  -- contextual | audiences
+  budget       REAL,
+  budget_type  TEXT,
+  cost_type    TEXT,
+  start_date   TEXT,
+  end_date     TEXT,
+  synced_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sb_campaign_daily_metrics (
+  date           TEXT NOT NULL,
+  campaign_id    TEXT NOT NULL,
+  campaign_name  TEXT,
+  impressions    INTEGER NOT NULL DEFAULT 0,
+  clicks         INTEGER NOT NULL DEFAULT 0,
+  cost           REAL NOT NULL DEFAULT 0,
+  sales          REAL NOT NULL DEFAULT 0,
+  purchases      INTEGER NOT NULL DEFAULT 0,
+  synced_at      TEXT NOT NULL,
+  PRIMARY KEY (date, campaign_id)
+);
+
+CREATE TABLE IF NOT EXISTS sd_campaign_daily_metrics (
+  date           TEXT NOT NULL,
+  campaign_id    TEXT NOT NULL,
+  campaign_name  TEXT,
+  impressions    INTEGER NOT NULL DEFAULT 0,
+  clicks         INTEGER NOT NULL DEFAULT 0,
+  cost           REAL NOT NULL DEFAULT 0,
+  sales          REAL NOT NULL DEFAULT 0,
+  purchases      INTEGER NOT NULL DEFAULT 0,
+  synced_at      TEXT NOT NULL,
+  PRIMARY KEY (date, campaign_id)
+);
+
+CREATE VIEW IF NOT EXISTS all_campaigns AS
+  SELECT 'sp' AS ad_product, campaign_id, name, state, targeting_type AS subtype,
+         daily_budget, start_date, end_date
+    FROM sp_campaigns
+  UNION ALL
+  SELECT 'sb', campaign_id, name, state, NULLIF(budget_type, 'daily'),
+         CASE WHEN budget_type = 'daily' THEN budget END, start_date, end_date
+    FROM sb_campaigns
+  UNION ALL
+  SELECT 'sd', campaign_id, name, state, tactic,
+         CASE WHEN budget_type = 'daily' THEN budget END, start_date, end_date
+    FROM sd_campaigns;
+
+CREATE VIEW IF NOT EXISTS all_campaign_daily AS
+  SELECT 'sp' AS ad_product, date, campaign_id, campaign_name, impressions, clicks, cost,
+         sales_14d AS sales, purchases_14d AS orders
+    FROM sp_campaign_daily_metrics
+  UNION ALL
+  SELECT 'sb', date, campaign_id, campaign_name, impressions, clicks, cost, sales, purchases
+    FROM sb_campaign_daily_metrics
+  UNION ALL
+  SELECT 'sd', date, campaign_id, campaign_name, impressions, clicks, cost, sales, purchases
+    FROM sd_campaign_daily_metrics;

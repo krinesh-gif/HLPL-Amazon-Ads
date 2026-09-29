@@ -10,6 +10,8 @@ const JOBS = [
   { job: "keywords", label: "Keywords, targets & negatives", cmd: "npm run sync:keywords", every: "daily" },
   { job: "targeting", label: "Keyword/target performance", cmd: "npm run sync:targeting", every: "daily" },
   { job: "search-terms", label: "Search terms", cmd: "npm run sync:search-terms", every: "daily" },
+  { job: "sb", label: "Sponsored Brands", cmd: "npm run sync:sb", every: "daily" },
+  { job: "sd", label: "Sponsored Display", cmd: "npm run sync:sd", every: "daily" },
   { job: "profiles", label: "Advertising profiles", cmd: "npm run sync:profiles", every: "once" },
 ];
 

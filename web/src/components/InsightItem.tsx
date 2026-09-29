@@ -1,5 +1,5 @@
 import { SEVERITY_LABEL, type Insight } from "../lib/insights";
-import { href } from "../lib/router";
+import { campaignHref } from "../lib/adProducts";
 import type { Range } from "../lib/types";
 
 const ICON: Record<Insight["severity"], string> = {
@@ -19,7 +19,7 @@ export function InsightItem({ insight, range }: { insight: Insight; range: Range
         <div className="insight-top">
           <span className="sev-label">{SEVERITY_LABEL[insight.severity]} · {insight.kind}</span>
         </div>
-        <a className="insight-campaign" href={href(`/campaigns/${encodeURIComponent(insight.campaign.campaignId)}`, range)}>
+        <a className="insight-campaign" href={campaignHref(insight.campaign, range)}>
           {insight.campaign.name}
         </a>
         <p className="insight-title">{insight.title}</p>

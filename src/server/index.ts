@@ -10,6 +10,7 @@ import {
   getMeta,
   getOverview,
   getSyncStatus,
+  type AdProduct,
   type Range,
 } from "./queries.js";
 import { getSearchTerms } from "./searchTerms.js";
@@ -64,23 +65,28 @@ function parseRange(from?: string, to?: string): Range | string {
   return { from, to };
 }
 
+/** ?ad=sp|sb|sd filters to one ad type; anything else (or absent) means all. */
+function parseAd(v: string | undefined): AdProduct | null {
+  return v === "sp" || v === "sb" || v === "sd" ? v : null;
+}
+
 app.get("/api/meta", (c) => c.json(getMeta()));
 app.get("/api/sync", (c) => c.json(getSyncStatus()));
 
 app.get("/api/overview", (c) => {
   const range = parseRange(c.req.query("from"), c.req.query("to"));
-  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getOverview(range));
+  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getOverview(range, parseAd(c.req.query("ad"))));
 });
 
 app.get("/api/campaigns", (c) => {
   const range = parseRange(c.req.query("from"), c.req.query("to"));
-  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getCampaigns(range));
+  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getCampaigns(range, parseAd(c.req.query("ad"))));
 });
 
 app.get("/api/campaigns/:id", (c) => {
   const range = parseRange(c.req.query("from"), c.req.query("to"));
   if (typeof range === "string") return c.json({ error: range }, 400);
-  const result = getCampaign(c.req.param("id"), range);
+  const result = getCampaign(c.req.param("id"), range, parseAd(c.req.query("ad")));
   return result ? c.json(result) : c.json({ error: "campaign not found" }, 404);
 });
 

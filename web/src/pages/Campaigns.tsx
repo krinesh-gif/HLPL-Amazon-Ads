@@ -2,10 +2,11 @@ import { useDeferredValue, useMemo, useState } from "react";
 import type { PageProps } from "../App";
 import { Card, Delta, Empty, ErrorBox, Skeleton, StatePill } from "../components/Ui";
 import { prefetch, qs, useApi } from "../lib/api";
+import { AD_SHORT, campaignApi, campaignHref } from "../lib/adProducts";
 import { downloadCsv } from "../lib/csv";
 import { fmtCount, fmtINR, fmtPct, fmtRatio } from "../lib/format";
 import { METRICS, change } from "../lib/metrics";
-import { href, navigate } from "../lib/router";
+import { navigate } from "../lib/router";
 import type { CampaignRow, CampaignsResponse } from "../lib/types";
 
 type Col = {
@@ -18,8 +19,8 @@ type Col = {
 
 const ratio = (a: number, b: number) => (b > 0 ? a / b : null);
 
-export function CampaignsPage({ range, targetAcos, params }: PageProps) {
-  const q = qs({ from: range.from, to: range.to });
+export function CampaignsPage({ range, targetAcos, params, ad }: PageProps) {
+  const q = qs({ from: range.from, to: range.to, ...(ad ? { ad } : {}) });
   const { data, error } = useApi<CampaignsResponse>(`/api/campaigns?${q}`);
   const [search, setSearch] = useState(params.get("q") ?? "");
   const deferredSearch = useDeferredValue(search);
@@ -38,6 +39,7 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
   };
 
   const columns: Col[] = [
+    ...(ad ? [] : [{ key: "adProduct", label: "Type", value: (c: CampaignRow) => AD_SHORT[c.adProduct], render: (c: CampaignRow) => <span className={`pill ad-${c.adProduct}`}>{AD_SHORT[c.adProduct]}</span>, hideSm: true }]),
     { key: "state", label: "State", value: (c) => c.state, render: (c) => <StatePill state={c.state} />, hideSm: true },
     { key: "dailyBudget", label: "Budget/day", value: (c) => c.dailyBudget, render: (c) => fmtINR(c.dailyBudget), hideSm: true },
     { key: "cost", label: "Spend", value: (c) => c.cost, render: (c) => fmtINR(c.cost) },
@@ -63,7 +65,7 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
   const rows = useMemo(() => {
     if (!data) return [];
     const needle = deferredSearch.trim().toLowerCase();
-    const col = columns.find((c) => c.key === sort) ?? columns[2];
+    const col = columns.find((c) => c.key === sort) ?? columns.find((c) => c.key === "cost")!;
     return data.campaigns
       .filter((c) => (state === "all" ? true : c.state === state))
       .filter((c) => (type === "all" ? true : c.targetingType === type))
@@ -77,7 +79,7 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
         return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, deferredSearch, state, type, sort, dir, targetAcos]);
+  }, [data, deferredSearch, state, type, sort, dir, targetAcos, ad]);
 
   const totals = useMemo(() => rows.reduce(
     (t, c) => ({ cost: t.cost + c.cost, sales: t.sales + c.sales, orders: t.orders + c.orders, clicks: t.clicks + c.clicks, impressions: t.impressions + c.impressions }),
@@ -118,8 +120,10 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
         </div>
         <select value={type} onChange={(e) => setParam("type", e.target.value)} aria-label="Targeting type">
           <option value="all">All targeting</option>
-          <option value="manual">Manual</option>
-          <option value="auto">Auto</option>
+          <option value="manual">Manual (SP)</option>
+          <option value="auto">Auto (SP)</option>
+          <option value="contextual">Contextual (SD)</option>
+          <option value="audiences">Audiences (SD)</option>
         </select>
         <button className="btn" onClick={exportCsv} disabled={!rows.length}>Export CSV</button>
       </div>
@@ -147,11 +151,11 @@ export function CampaignsPage({ range, targetAcos, params }: PageProps) {
               </thead>
               <tbody>
                 {rows.map((c) => {
-                  const url = `/campaigns/${encodeURIComponent(c.campaignId)}`;
                   return (
-                    <tr key={c.campaignId} onMouseEnter={() => prefetch(`/api/campaigns/${encodeURIComponent(c.campaignId)}?${q}`)}>
+                    <tr key={`${c.adProduct}:${c.campaignId}`} onMouseEnter={() => prefetch(campaignApi(c, range))}>
                       <td className="sticky-col name-cell">
-                        <a href={href(url, range)}>{c.name}</a>
+                        {!ad && <span className={`pill ad-${c.adProduct} show-sm-inline`}>{AD_SHORT[c.adProduct]}</span>}
+                        <a href={campaignHref(c, range)}>{c.name}</a>
                         <span className="muted small block">{c.targetingType ?? ""}{c.targetingType ? " · " : ""}{c.campaignId}</span>
                       </td>
                       {columns.map((col) => (

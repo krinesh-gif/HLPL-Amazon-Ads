@@ -34,6 +34,12 @@ slice, but relevant context if asked to integrate order/inventory data later.
   `sync:search-terms`, `sync:all`. Keywords and targets share `sp_targets` (reports put both ids in
   `keywordId`). Dashboard screens Keywords (suggested bids) and Search terms (harvest/negate) are
   **suggestions only** — no writes. Report columns and list shapes are from docs, unverified live.
+- **Slice four (Sponsored Brands & Display, campaign level) added**: `sbCampaigns.ts` (v4 list),
+  `sdCampaigns.ts` (older GET + startIndex paging), `sb/sdCampaignDailyReportRequest` in
+  `reports.ts`, own tables `sb_*` / `sd_*`, unified for the dashboard by the SQL views
+  `all_campaigns` / `all_campaign_daily` (keyed by `ad_product` + `campaign_id`). Dashboard has an
+  All/SP/SB/SD switch (`?ad=`); campaign links carry `?type=`. `sync:all` now continues past a
+  failing job. Views use `CREATE VIEW IF NOT EXISTS`, so changing a view later needs a DROP first.
 - Fixed in slice three: `campaigns.ts` was typed with v2 fields on the v3 endpoint (v3 has uppercase
   enums and `budget.budget`, not `dailyBudget`) and didn't paginate; reports now split into ≤31-day
   windows.

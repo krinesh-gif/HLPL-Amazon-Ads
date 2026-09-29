@@ -30,6 +30,9 @@ interface DemoCampaign {
   aov: number; // INR
   state?: "enabled" | "paused";
   pausedDaysAgo?: number;
+  startsDaysAgo?: number;
+  tactic?: string; // SD only
+  costType?: string;
 }
 
 const CAMPAIGNS: DemoCampaign[] = [
@@ -49,6 +52,18 @@ const CAMPAIGNS: DemoCampaign[] = [
   { name: "SP | Competitor ASIN | Hair Oils", targeting: "manual", budget: 1000, cpc: 10.5, ctr: 0.0021, cvr: 0.018, aov: 470 },
   { name: "SP | Bhringraj Oil | Test", targeting: "manual", budget: 500, cpc: 9.0, ctr: 0.0025, cvr: 0, aov: 399 },
   { name: "SP | Hair Care Combo | Auto", targeting: "auto", budget: 800, cpc: 8.4, ctr: 0.0037, cvr: 0.048, aov: 899, state: "paused", pausedDaysAgo: 20 },
+];
+
+// SB: lower CTR per impression but strong brand CVR; SD: cheap clicks, low CVR (retargeting better).
+const SB_CAMPAIGNS: DemoCampaign[] = [
+  { name: "SB | Aravi Hair Care | Store Spotlight", targeting: "manual", budget: 1500, cpc: 12.5, ctr: 0.0035, cvr: 0.06, aov: 620 },
+  { name: "SB | Onion Hair Oil | Video", targeting: "manual", budget: 1200, cpc: 8.9, ctr: 0.0052, cvr: 0.05, aov: 449 },
+  { name: "SB | Skin Care | Product Collection", targeting: "manual", budget: 1000, cpc: 14.1, ctr: 0.003, cvr: 0.04, aov: 580, startsDaysAgo: 75 },
+];
+const SD_CAMPAIGNS: DemoCampaign[] = [
+  { name: "SD | Retargeting | Viewed 30d", targeting: "manual", budget: 800, cpc: 6.2, ctr: 0.0019, cvr: 0.07, aov: 520, tactic: "audiences" },
+  { name: "SD | Competitor Products | Hair Oils", targeting: "manual", budget: 700, cpc: 5.4, ctr: 0.0024, cvr: 0.025, aov: 460, tactic: "contextual" },
+  { name: "SD | Awareness | Skin Care", targeting: "manual", budget: 500, cpc: 4.1, ctr: 0.0012, cvr: 0.012, aov: 560, tactic: "audiences", costType: "vcpm" },
 ];
 
 const DAYS = 180;
@@ -93,10 +108,37 @@ export function seedDemo({ force = false } = {}): void {
       (date, campaign_id, campaign_name, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
+  /** One campaign-day of fake performance: weekly rhythm, growth trend, a festive-sale bump, budget cap. */
+  function genDay(c: DemoCampaign, d: number, date: Date) {
+    const dow = date.getUTCDay();
+    const weekly = dow === 0 || dow === 6 ? 1.12 : dow === 3 ? 0.94 : 1;
+    const trend = 0.8 + 0.4 * ((DAYS - d) / DAYS); // account growing over the period
+    // A festive-sale bump roughly 5–3 weeks ago.
+    const sale = d >= 20 && d <= 34 ? 1.45 : 1;
+    const demand = weekly * trend * sale * noise(0.18);
+
+    const cpc = c.cpc * (sale > 1 ? 1.2 : 1) * noise(0.12);
+    let clicks = Math.max(0, Math.round((c.budget / c.cpc) * 0.7 * demand * noise(0.2)));
+    let cost = clicks * cpc;
+    if (cost > c.budget) {
+      // Budget cap: Amazon stops serving once the daily budget is spent.
+      clicks = Math.floor(c.budget / cpc);
+      cost = clicks * cpc;
+    }
+    const impressions = Math.round((clicks / c.ctr) * noise(0.15));
+    let orders = 0;
+    for (let k = 0; k < clicks; k++) if (rand() < c.cvr * (sale > 1 ? 1.15 : 1)) orders++;
+    const sales = orders * c.aov * noise(0.08);
+
+    return { impressions, clicks, cost, orders, sales };
+  }
+
   db.transaction(() => {
     db.exec(`DELETE FROM sp_campaign_daily_metrics; DELETE FROM sp_campaigns; DELETE FROM sync_runs; DELETE FROM profiles;
       DELETE FROM sp_ad_groups; DELETE FROM sp_targets; DELETE FROM sp_negative_keywords;
-      DELETE FROM sp_target_daily_metrics; DELETE FROM sp_search_term_daily_metrics;`);
+      DELETE FROM sp_target_daily_metrics; DELETE FROM sp_search_term_daily_metrics;
+      DELETE FROM sb_campaigns; DELETE FROM sd_campaigns;
+      DELETE FROM sb_campaign_daily_metrics; DELETE FROM sd_campaign_daily_metrics;`);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('data_source', 'demo')`).run();
     db.prepare(
       `INSERT INTO profiles VALUES ('0000000000000', 'IN', 'INR', 'Aravi Organic (DEMO)', 'seller', ?)`
@@ -118,26 +160,7 @@ export function seedDemo({ force = false } = {}): void {
       for (let d = DAYS; d >= 1; d--) {
         if (c.pausedDaysAgo && d < c.pausedDaysAgo) continue;
         const date = new Date(today.getTime() - d * 86_400_000);
-        const dow = date.getUTCDay();
-        const weekly = dow === 0 || dow === 6 ? 1.12 : dow === 3 ? 0.94 : 1;
-        const trend = 0.8 + 0.4 * ((DAYS - d) / DAYS); // account growing over the period
-        // A festive-sale bump roughly 5–3 weeks ago.
-        const sale = d >= 20 && d <= 34 ? 1.45 : 1;
-        const demand = weekly * trend * sale * noise(0.18);
-
-        const cpc = c.cpc * (sale > 1 ? 1.2 : 1) * noise(0.12);
-        let clicks = Math.max(0, Math.round((c.budget / c.cpc) * 0.7 * demand * noise(0.2)));
-        let cost = clicks * cpc;
-        if (cost > c.budget) {
-          // Budget cap: Amazon stops serving once the daily budget is spent.
-          clicks = Math.floor(c.budget / cpc);
-          cost = clicks * cpc;
-        }
-        const impressions = Math.round((clicks / c.ctr) * noise(0.15));
-        let orders = 0;
-        for (let k = 0; k < clicks; k++) if (rand() < c.cvr * (sale > 1 ? 1.15 : 1)) orders++;
-        const sales = orders * c.aov * noise(0.08);
-
+        const { impressions, clicks, cost, orders, sales } = genDay(c, d, date);
         const day = date.toISOString().slice(0, 10);
         const totals = { impressions, clicks, cost: Math.round(cost * 100) / 100, sales: Math.round(sales * 100) / 100, orders };
         insertMetric.run(day, id, c.name, impressions, clicks, totals.cost, totals.sales, orders, syncedAt);
@@ -155,6 +178,27 @@ export function seedDemo({ force = false } = {}): void {
       }
     });
 
+    // Sponsored Brands / Display: campaign + daily rows only (no keyword level for these yet).
+    for (const [product, list] of [["sb", SB_CAMPAIGNS], ["sd", SD_CAMPAIGNS]] as const) {
+      const insertC = product === "sb"
+        ? db.prepare(`INSERT INTO sb_campaigns VALUES (?, ?, ?, ?, 'daily', ?, ?, NULL, ?)`)
+        : db.prepare(`INSERT INTO sd_campaigns VALUES (?, ?, ?, ?, ?, 'daily', ?, ?, NULL, ?)`);
+      const insertM = db.prepare(`INSERT INTO ${product}_campaign_daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      list.forEach((c, i) => {
+        const id = String((product === "sb" ? 600000000000000 : 700000000000000) + i * 7919);
+        const start = new Date(today.getTime() - (DAYS + 30) * 86_400_000).toISOString().slice(0, 10);
+        if (product === "sb") insertC.run(id, c.name, c.state ?? "enabled", c.budget, c.costType ?? "cpc", start, syncedAt);
+        else insertC.run(id, c.name, c.state ?? "enabled", c.tactic ?? "contextual", c.budget, c.costType ?? "cpc", start, syncedAt);
+        for (let d = DAYS; d >= 1; d--) {
+          if (c.startsDaysAgo && d > c.startsDaysAgo) continue;
+          const date = new Date(today.getTime() - d * 86_400_000);
+          const t = genDay(c, d, date);
+          insertM.run(date.toISOString().slice(0, 10), id, c.name, t.impressions, t.clicks,
+            Math.round(t.cost * 100) / 100, Math.round(t.sales * 100) / 100, t.orders, syncedAt);
+        }
+      });
+    }
+
     // Fake a history of daily syncs so the Sync status screen has something to show.
     const insertRun = db.prepare(
       `INSERT INTO sync_runs (job, started_at, finished_at, status, rows_synced, detail) VALUES (?, ?, ?, ?, ?, ?)`
@@ -166,10 +210,12 @@ export function seedDemo({ force = false } = {}): void {
       insertRun.run("keywords", t.toISOString(), new Date(t.getTime() + 9000).toISOString(), "success", 60, "demo");
       insertRun.run("targeting", t.toISOString(), done.toISOString(), "success", 900, "demo · last 14 days");
       insertRun.run("search-terms", t.toISOString(), done.toISOString(), "success", 4200, "demo · last 14 days");
+      insertRun.run("sb", t.toISOString(), done.toISOString(), "success", 60, "demo · last 14 days");
+      insertRun.run("sd", t.toISOString(), done.toISOString(), "success", 45, "demo · last 14 days");
       if (d === 9) insertRun.run("reports", t.toISOString(), done.toISOString(), "failed", null, "demo: report did not finish within 300000ms");
       else insertRun.run("reports", t.toISOString(), done.toISOString(), "success", CAMPAIGNS.length * 7, "demo · last 7 days");
     }
   })();
 
-  console.log(`Seeded DEMO data (${CAMPAIGNS.length} campaigns × ${DAYS} days) into ${db.name}.`);
+  console.log(`Seeded DEMO data (${CAMPAIGNS.length} SP + ${SB_CAMPAIGNS.length} SB + ${SD_CAMPAIGNS.length} SD campaigns × ${DAYS} days) into ${db.name}.`);
 }
