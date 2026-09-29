@@ -63,3 +63,36 @@ export async function listAllV3<T>(
   } while (nextToken);
   return items;
 }
+
+/** Result of a v3 bulk write: which request items succeeded (with the id Amazon assigned) and which failed. */
+export interface V3WriteResult {
+  success: { index: number; id: string }[];
+  error: { index: number; message: string }[];
+}
+
+/**
+ * Sends one v3 bulk write (create / update / delete) and normalises the multi-status
+ * response `{ <key>: { success: [...], error: [...] } }`. Only called from deploys.
+ */
+export async function writeV3(
+  method: "POST" | "PUT",
+  path: string,
+  contentType: string,
+  key: string,
+  items: Record<string, unknown>[] | Record<string, unknown>,
+  idField: string
+): Promise<V3WriteResult> {
+  const res = await adsApiFetch<Record<string, { success?: Record<string, unknown>[]; error?: Record<string, unknown>[] }>>(path, {
+    method,
+    body: Array.isArray(items) ? { [key]: items } : items,
+    headers: { "Content-Type": contentType, Accept: contentType, Prefer: "return=representation" },
+  });
+  const block = res?.[key] ?? {};
+  return {
+    success: (block.success ?? []).map((s) => ({ index: Number(s.index), id: String(s[idField] ?? "") })),
+    error: (block.error ?? []).map((e) => ({
+      index: Number(e.index),
+      message: JSON.stringify((e.errors as unknown[] | undefined) ?? e).slice(0, 500),
+    })),
+  };
+}

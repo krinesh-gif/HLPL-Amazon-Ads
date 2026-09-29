@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
 import { CampaignSelect } from "../components/CampaignSelect";
 import { DataTable, nextSort, type Column } from "../components/DataTable";
+import { Flash, HarvestForm, stageWithFlash } from "../components/StageControls";
 import { Card, Empty, ErrorBox, Skeleton } from "../components/Ui";
 import { qs, useApi } from "../lib/api";
 import { downloadCsv } from "../lib/csv";
 import { fmtCount, fmtDay, fmtINR, fmtPct } from "../lib/format";
 import { usePref } from "../lib/prefs";
+import { unstage, useQueue } from "../lib/queue";
 import { href, navigate } from "../lib/router";
 import type { SearchTermRow, SearchTermsResponse } from "../lib/types";
 
@@ -42,6 +44,9 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
   const page = Math.max(0, Number(params.get("page")) || 0);
   const [minClicks, setMinClicks] = usePref("negateMinClicks", 10);
   const [minOrders, setMinOrders] = usePref("harvestMinOrders", 2);
+  const queue = useQueue();
+  const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [harvesting, setHarvesting] = useState<string | null>(null);
 
   // Search is sent to the server, debounced so typing doesn't fire a request per key.
   const [search, setSearch] = useState(params.get("q") ?? "");
@@ -82,6 +87,7 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
     );
   }
 
+  const negatable = (data?.rows ?? []).filter((r) => r.action?.type === "negate" && !queue.byKey.has(`negative:${r.adGroupId}:${r.searchTerm}`));
   const coverageStart = meta.searchTerms.minDate;
   const partial = coverageStart && range.from < coverageStart;
 
@@ -101,12 +107,33 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
     { key: "source", label: view === "harvest" ? "Top source" : "Matched via", sortable: false, hideSm: true, render: (r) => <Source r={r} /> },
     {
       key: "action", label: "Suggestion", sortable: false,
-      render: (r) => r.action ? (
-        <span className={`action action-${r.action.type}`}>
-          <span className="action-label">{r.action.type === "harvest" ? "↗" : "⊘"} {r.action.label}</span>
-          <span className="muted small block">{r.action.reason}</span>
-        </span>
-      ) : <span className="muted">—</span>,
+      render: (r) => {
+        if (!r.action) return <span className="muted">—</span>;
+        const staged = r.action.type === "negate"
+          ? queue.byKey.get(`negative:${r.adGroupId}:${r.searchTerm}`)
+          : queue.harvestByTerm.get(r.searchTerm);
+        return (
+          <span className={`action action-${r.action.type}`}>
+            <span className="action-label">{r.action.type === "harvest" ? "↗" : "⊘"} {r.action.label}</span>
+            <span className="muted small block">{r.action.reason}</span>
+            {staged ? (
+              <span className="staged-cell block">
+                <span className="pill st-staged">staged</span>
+                {staged.kind === "harvest" && <span className="muted small"> → {staged.campaignName}</span>}
+                <button className="linkish" onClick={() => unstage(staged)}>undo</button>
+              </span>
+            ) : harvesting === r.key ? (
+              <HarvestForm term={r.searchTerm} isAsin={r.isAsin} flash={setFlash} onDone={() => setHarvesting(null)} />
+            ) : r.action.type === "negate" ? (
+              <button className="btn small-btn stage-btn" onClick={() => stageWithFlash([{ kind: "negative", searchTerm: r.searchTerm, campaignId: r.campaignId, adGroupId: r.adGroupId, reason: r.action!.reason }], setFlash)}>
+                Stage negative
+              </button>
+            ) : (
+              <button className="btn small-btn stage-btn" onClick={() => setHarvesting(r.key)}>Stage…</button>
+            )}
+          </span>
+        );
+      },
     },
     { key: "cost", label: "Spend", num: true, render: (r) => fmtINR(r.cost), footer: data && fmtINR(data.totals.cost) },
     { key: "sales", label: "Sales", num: true, render: (r) => fmtINR(r.sales), footer: data && fmtINR(data.totals.sales) },
@@ -141,6 +168,7 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
 
   return (
     <div className="stack">
+      <Flash msg={flash} onClose={() => setFlash(null)} />
       <Card>
         <p className="eyebrow">Sponsored Products</p>
         <div className="toolbar">
@@ -155,6 +183,13 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
             onChange={(e) => setSearch(e.target.value)} aria-label="Search terms" />
           <CampaignSelect range={range} value={campaignId} onChange={(id) => setParams({ campaignId: id })} />
           <button className="btn" onClick={exportCsv} disabled={!data?.total}>Export CSV</button>
+          {view === "negate" && (
+            <button className="btn primary" disabled={!negatable.length} onClick={() => {
+              if (confirm(`Stage ${negatable.length} negative keyword${negatable.length === 1 ? "" : "s"} from this page? Nothing is sent to Amazon until you deploy from the queue.`)) {
+                stageWithFlash(negatable.map((r) => ({ kind: "negative" as const, searchTerm: r.searchTerm, campaignId: r.campaignId, adGroupId: r.adGroupId, reason: r.action!.reason })), setFlash);
+              }
+            }}>Stage {negatable.length} on this page</button>
+          )}
         </div>
         <div className="rules muted small">
           <span><strong>Harvest</strong>: converting terms from auto, broad, phrase or product targeting, not yet an exact keyword, with ≥
@@ -198,8 +233,8 @@ export function SearchTermsPage({ range, meta, targetAcos, params }: PageProps) 
         )}
       </Card>
       <p className="muted small">
-        Suggestions only — nothing here changes your Amazon account. Export the list and apply it in Campaign Manager or a bulk sheet;
-        staged in-app deploys come later. Totals row covers every row in this view, not just this page.{" "}
+        Staging only adds a change to the <a className="link" href="#/deploy">Deploy queue</a> — nothing reaches Amazon until you review and deploy it there.
+        Totals row covers every row in this view, not just this page.{" "}
         <a className="link" href={href("/keywords", range)}>Keyword bids →</a>
       </p>
     </div>

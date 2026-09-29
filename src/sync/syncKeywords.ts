@@ -1,6 +1,6 @@
 import { listSpAdGroups } from "../amazon-ads/adGroups.js";
 import { listSpKeywords } from "../amazon-ads/keywords.js";
-import { listSpCampaignNegativeKeywords, listSpNegativeKeywords } from "../amazon-ads/negativeKeywords.js";
+import { listSpCampaignNegativeKeywords, listSpNegativeAsinTargets, listSpNegativeKeywords } from "../amazon-ads/negativeKeywords.js";
 import { describeExpression, listSpTargets } from "../amazon-ads/targets.js";
 import { db, initSchema } from "../db/client.js";
 
@@ -10,12 +10,13 @@ import { db, initSchema } from "../db/client.js";
  */
 export async function syncKeywords(): Promise<number> {
   initSchema();
-  const [adGroups, keywords, targets, negatives, campaignNegatives] = await Promise.all([
+  const [adGroups, keywords, targets, negatives, campaignNegatives, negativeAsins] = await Promise.all([
     listSpAdGroups(),
     listSpKeywords(),
     listSpTargets(),
     listSpNegativeKeywords(),
     listSpCampaignNegativeKeywords(),
+    listSpNegativeAsinTargets(),
   ]);
   const syncedAt = new Date().toISOString();
 
@@ -57,18 +58,19 @@ export async function syncKeywords(): Promise<number> {
     }
     // Negatives are replaced wholesale: removed ones must disappear, not linger.
     db.exec(`DELETE FROM sp_negative_keywords`);
-    for (const n of [...negatives, ...campaignNegatives]) {
+    for (const n of [...negatives, ...campaignNegatives, ...negativeAsins]) {
       insertNegative.run({
-        id: `${n.adGroupId ? "ag" : "c"}-${n.keywordId}`, campaignId: n.campaignId, adGroupId: n.adGroupId ?? null,
+        // The raw Amazon id, so a deployed negative can be found (and reverted) after a re-sync.
+        id: n.keywordId, campaignId: n.campaignId, adGroupId: n.adGroupId ?? null,
         text: n.keywordText.toLowerCase(), matchType: n.matchType.toLowerCase(), syncedAt,
       });
     }
   })();
 
-  const total = adGroups.length + keywords.length + targets.length + negatives.length + campaignNegatives.length;
+  const total = adGroups.length + keywords.length + targets.length + negatives.length + campaignNegatives.length + negativeAsins.length;
   console.log(
     `Synced ${adGroups.length} ad groups, ${keywords.length} keywords, ${targets.length} targets, ` +
-      `${negatives.length + campaignNegatives.length} negative keywords into ${db.name}.`
+      `${negatives.length + campaignNegatives.length} negative keywords, ${negativeAsins.length} negative ASINs into ${db.name}.`
   );
   return total;
 }

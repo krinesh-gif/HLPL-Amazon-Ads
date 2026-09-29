@@ -13,6 +13,9 @@ interface Entry {
   fetchedAt?: number;
 }
 
+/** Fired when any request comes back 401 (e.g. the session expired) — the app shows the login screen. */
+export const UNAUTHORIZED = "aravi:unauthorized";
+
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
@@ -26,6 +29,7 @@ function load(url: string, force = false): Promise<void> {
   const promise = fetch(url)
     .then(async (res) => {
       const body = await res.json().catch(() => ({}));
+      if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED));
       if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
       cache.set(url, { data: body, fetchedAt: Date.now() });
     })
@@ -64,3 +68,29 @@ export function useApi<T>(url: string | null): { data?: T; error?: string; loadi
 }
 
 export const qs = (params: Record<string, string>) => new URLSearchParams(params).toString();
+
+/**
+ * Sends a change (stage / discard / revert / deploy). Always JSON — the server refuses
+ * anything else for state-changing requests. Clears the read cache afterwards.
+ */
+export async function send<T = unknown>(method: "POST" | "DELETE", url: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED));
+  invalidateAll();
+  if (!res.ok && !(data && Array.isArray((data as { errors?: unknown }).errors))) {
+    throw new Error((data as { error?: string })?.error || `Request failed (${res.status})`);
+  }
+  return data as T;
+}
+
+/** Forget everything (used on sign-out so the next user never sees cached data). */
+export function clearCache(): void {
+  cache.clear();
+  notify();
+}

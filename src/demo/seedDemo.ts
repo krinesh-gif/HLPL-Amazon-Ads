@@ -1,5 +1,9 @@
 import { db, initSchema } from "../db/client.js";
 import { buildDemoTargets, splitDay } from "./demoTargeting.js";
+import { upsertUser } from "../server/auth.js";
+
+/** Demo-only login, shown on the sign-in screen when the demo database is loaded. */
+export const DEMO_LOGIN = { username: "demo", password: "aravi-demo" };
 
 /**
  * Fills the DB with realistic-looking but entirely FAKE Sponsored Products data, so the
@@ -138,7 +142,9 @@ export function seedDemo({ force = false } = {}): void {
       DELETE FROM sp_ad_groups; DELETE FROM sp_targets; DELETE FROM sp_negative_keywords;
       DELETE FROM sp_target_daily_metrics; DELETE FROM sp_search_term_daily_metrics;
       DELETE FROM sb_campaigns; DELETE FROM sd_campaigns;
-      DELETE FROM sb_campaign_daily_metrics; DELETE FROM sd_campaign_daily_metrics;`);
+      DELETE FROM sb_campaign_daily_metrics; DELETE FROM sd_campaign_daily_metrics;
+      DELETE FROM change_queue; DELETE FROM deploys;`);
+    upsertUser(DEMO_LOGIN.username, DEMO_LOGIN.password);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('data_source', 'demo')`).run();
     db.prepare(
       `INSERT INTO profiles VALUES ('0000000000000', 'IN', 'INR', 'Aravi Organic (DEMO)', 'seller', ?)`

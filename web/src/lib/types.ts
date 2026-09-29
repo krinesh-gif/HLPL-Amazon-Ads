@@ -127,3 +127,59 @@ export interface TargetsResponse {
   accountCvr: number;
   rows: TargetRow[];
 }
+
+export type DeployMode = "live" | "dry_run" | "demo";
+export type ChangeKind = "bid" | "state" | "negative" | "harvest" | "remove_negative" | "archive_keyword";
+export interface Change {
+  id: number;
+  kind: ChangeKind;
+  status: "staged" | "deployed" | "demo_applied" | "dry_run" | "failed" | "discarded";
+  targetKind: string | null;
+  entityId: string | null;
+  entityKey: string;
+  campaignId: string;
+  adGroupId: string;
+  campaignName: string | null;
+  adGroupName: string | null;
+  label: string;
+  oldValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown>;
+  estDailyCostDelta: number | null;
+  reason: string | null;
+  source: string;
+  revertOf: number | null;
+  createdBy: string;
+  createdAt: string;
+  deployId: number | null;
+  resultMessage: string | null;
+  reverted?: boolean;
+}
+export interface Limits {
+  minBid: number;
+  maxBid: number;
+  maxStep: number;
+  maxPerDeploy: number;
+  estimateDays: number;
+}
+export interface ChangesResponse {
+  changes: Change[];
+  estDailyCostDelta: number;
+  limits: Limits;
+  mode: DeployMode;
+}
+export interface Deploy {
+  id: number;
+  mode: DeployMode;
+  deployedBy: string;
+  startedAt: string;
+  finishedAt: string | null;
+  total: number;
+  succeeded: number;
+  failed: number;
+  estDailyCostDelta: number | null;
+  changes: Change[];
+}
+export interface StageResult {
+  staged: number[];
+  errors: { index: number; error: string }[];
+}

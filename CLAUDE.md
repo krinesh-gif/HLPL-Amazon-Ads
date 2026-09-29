@@ -40,6 +40,15 @@ slice, but relevant context if asked to integrate order/inventory data later.
   `all_campaigns` / `all_campaign_daily` (keyed by `ad_product` + `campaign_id`). Dashboard has an
   All/SP/SB/SD switch (`?ad=`); campaign links carry `?type=`. `sync:all` now continues past a
   failing job. Views use `CREATE VIEW IF NOT EXISTS`, so changing a view later needs a DROP first.
+- **Slice five (login + staged deploys) added, with the design agreed with Krinesh** (all four
+  action types queueable; guardrails: bids ₹1–₹100, ±30%/step, ≤100 per deploy, ₹/day estimate
+  before confirm; Revert re-stages the inverse; login required). Code: `src/server/auth.ts`
+  (scrypt users via `npm run user:add`, sha256-hashed session tokens, same-origin + JSON guard),
+  `changes.ts` (staging/guardrails/estimates/revert: server derives old values, never the client),
+  `deploy.ts` (pre-checks incl. "value changed since staged", grouped v3 bulk writes, per-item
+  results), writers `keywordWrites.ts` / `targetWrites.ts` / `negativeWrites.ts` via `writeV3` in
+  `client.ts`. Live writes need `AMAZON_ADS_WRITES_ENABLED=true`; otherwise deploys are dry runs; the
+  demo DB only ever applies locally. Write endpoints tested against a stubbed API only.
 - Fixed in slice three: `campaigns.ts` was typed with v2 fields on the v3 endpoint (v3 has uppercase
   enums and `budget.budget`, not `dailyBudget`) and didn't paginate; reports now split into ≤31-day
   windows.
@@ -67,10 +76,10 @@ slice, but relevant context if asked to integrate order/inventory data later.
 
 ## Important: how "deploy" / write actions should behave, if this ever grows write features
 
-This slice is read-only against Amazon (it only pulls data). If a future slice adds
-anything that **writes** to the live Amazon account (bid changes, pausing campaigns,
-budget edits), copy the safety pattern Nola itself uses, confirmed by directly testing
-it on the live Nola dashboard:
+The Deploy queue (slice five) is the **only** path that writes to Amazon, and it follows the
+pattern below. Any new write feature (budgets, campaign pause, rules) must go through the same
+queue, and must be discussed with Krinesh first. The pattern Nola uses, confirmed by directly
+testing it on the live Nola dashboard:
 
 - Changes should be staged first (a "ready to deploy" queue), never pushed to Amazon's
   API the instant a user clicks an action button. A separate, explicit second step

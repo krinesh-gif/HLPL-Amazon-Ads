@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p web/tsconfig.json",
     "auth:url": "tsx scripts/get-auth-url.ts",
     "auth:exchange": "tsx scripts/exchange-code.ts",
+    "user:add": "tsx scripts/add-user.ts",
     "sync:profiles": "tsx src/cli.ts sync:profiles",
     "sync:campaigns": "tsx src/cli.ts sync:campaigns",
     "sync:reports": "tsx src/cli.ts sync:reports",

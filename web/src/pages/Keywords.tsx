@@ -1,11 +1,13 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import type { PageProps } from "../App";
 import { CampaignSelect } from "../components/CampaignSelect";
+import { Flash, stageWithFlash, TargetActions } from "../components/StageControls";
 import { DataTable, nextSort, type Column } from "../components/DataTable";
 import { Card, Empty, ErrorBox, Skeleton, StatePill } from "../components/Ui";
 import { qs, useApi } from "../lib/api";
 import { downloadCsv } from "../lib/csv";
 import { fmtCount, fmtINR, fmtPct } from "../lib/format";
+import { useQueue } from "../lib/queue";
 import { navigate } from "../lib/router";
 import type { TargetRow, TargetsResponse } from "../lib/types";
 
@@ -41,6 +43,8 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
   const [search, setSearch] = useState(params.get("q") ?? "");
   const needle = useDeferredValue(search.trim().toLowerCase());
   const [shown, setShown] = useState(PAGE);
+  const queue = useQueue();
+  const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const { data, error } = useApi<TargetsResponse>(
     `/api/targets?${qs({ from: range.from, to: range.to, targetAcos: String(targetAcos), ...(campaignId ? { campaignId } : {}) })}`
@@ -85,6 +89,11 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
     { cost: 0, sales: 0, orders: 0, clicks: 0, impressions: 0 }
   ), [rows]);
 
+  // Suggestions in the current view that aren't staged yet (capped at one deploy's worth).
+  const stageable = rows
+    .filter((r) => r.suggestedBid != null && r.state === "enabled" && !queue.byKey.has(`bid:${r.targetId}`))
+    .slice(0, 100);
+
   if (error) return <ErrorBox message={error} />;
 
   const columns: Column<TargetRow>[] = [
@@ -118,6 +127,10 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
         );
       },
     },
+    {
+      key: "stage", label: "Stage", sortable: false,
+      render: (r) => <TargetActions r={r} staged={{ bid: queue.byKey.get(`bid:${r.targetId}`), state: queue.byKey.get(`state:${r.targetId}`) }} flash={setFlash} />,
+    },
     { key: "cost", label: "Spend", num: true, render: (r) => fmtINR(r.cost), footer: fmtINR(totals.cost) },
     { key: "sales", label: "Sales", num: true, render: (r) => fmtINR(r.sales), footer: fmtINR(totals.sales) },
     {
@@ -143,6 +156,7 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
 
   return (
     <div className="stack">
+      <Flash msg={flash} onClose={() => setFlash(null)} />
       <Card>
         <p className="eyebrow">Sponsored Products</p>
         <div className="toolbar">
@@ -167,6 +181,13 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
             Only with a bid suggestion
           </label>
           <button className="btn" onClick={exportCsv} disabled={!rows.length}>Export CSV</button>
+          <button className="btn primary" disabled={!stageable.length} onClick={() => {
+            if (confirm(`Stage ${stageable.length} suggested bid change${stageable.length === 1 ? "" : "s"}? Nothing is sent to Amazon until you deploy from the queue.`)) {
+              stageWithFlash(stageable.map((r) => ({ kind: "bid" as const, targetId: r.targetId, bid: r.suggestedBid!, reason: r.suggestion })), setFlash);
+            }
+          }}>
+            Stage {stageable.length} suggestion{stageable.length === 1 ? "" : "s"}
+          </button>
         </div>
         <p className="muted small">
           Suggested bids move each bid toward your {fmtPct(targetAcos, 0)} target ACOS, at most ±30% per step, once a target has 10+ clicks.
@@ -198,7 +219,7 @@ export function KeywordsPage({ range, targetAcos, params }: PageProps) {
           </>
         )}
       </Card>
-      <p className="muted small">Read-only — suggested bids are not applied. Changing bids from here will need the staged “ready to deploy” flow, which we'll design together first.</p>
+      <p className="muted small">Staging only adds a change to the <a className="link" href="#/deploy">Deploy queue</a> — nothing reaches Amazon until you review and deploy it there.</p>
     </div>
   );
 }

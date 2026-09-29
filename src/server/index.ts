@@ -13,31 +13,63 @@ import {
   type AdProduct,
   type Range,
 } from "./queries.js";
+import { currentUser, hasUsers, login, logout, requireSameOrigin, requireUser, type User } from "./auth.js";
+import { discardChange, listDeploys, listStaged, stageChange, stageRevert, StageError, suggestedHarvestBid, LIMITS, type StageRequest } from "./changes.js";
+import { deployMode, DeployError, runDeploy } from "./deploy.js";
+import { db } from "../db/client.js";
 import { getSearchTerms } from "./searchTerms.js";
 import { getTargets } from "./targets.js";
 
 /**
- * Read-only dashboard server: a small JSON API over the local SQLite DB plus the
- * built web UI (dist/web). It never calls Amazon — data only arrives via `npm run sync:*`.
+ * Dashboard server: JSON API over the local SQLite DB plus the built web UI (dist/web).
+ * Reads never call Amazon — data arrives via `npm run sync:*`. The only path that can
+ * write to Amazon is POST /api/deploys, and only for changes already staged in the queue
+ * (see changes.ts / deploy.ts).
  *
- * There is no login yet, so it binds to 127.0.0.1 by default. Don't expose it on a
- * public interface (HOST=0.0.0.0) until auth is added — this is live business data.
+ * Every /api route except login requires a session. It still binds to 127.0.0.1 by default:
+ * put it behind HTTPS before exposing it (HOST=0.0.0.0) — this is live business data.
  */
 
 const PORT = Number(process.env.PORT) || 8787;
 const HOST = process.env.HOST || "127.0.0.1";
 const WEB_DIR = "./dist/web";
 
-const app = new Hono();
+const app = new Hono<{ Variables: { user: User } }>();
 app.use("*", compress());
+app.use("/api/*", requireSameOrigin);
 
-// ---- Response cache: queries are pure functions of (URL, DB contents). ----
-// PRAGMA data_version bumps whenever a sync job commits, which clears the cache.
+// ---- Login (the only unauthenticated API routes) ----
+app.post("/api/auth/login", login);
+app.post("/api/auth/logout", logout);
+app.get("/api/auth/me", (c) => {
+  const user = currentUser(c);
+  if (user) return c.json({ user });
+  // On the demo database only, the sign-in screen may show the demo login.
+  const demo = db.prepare(`SELECT value FROM meta WHERE key = 'data_source'`).pluck().get() === "demo";
+  return c.json({ user: null, hasUsers: hasUsers(), demoLogin: demo ? { username: "demo", password: "aravi-demo" } : null });
+});
+app.use("/api/*", requireUser);
+
+// ---- Response cache for the read-only data endpoints ----
+// Keyed by URL. Cleared when a sync job commits (PRAGMA data_version bumps for other
+// connections) and whenever this server itself changes data (staging / deploys).
+const CACHEABLE = ["/api/meta", "/api/sync", "/api/overview", "/api/campaigns", "/api/targets", "/api/search-terms"];
 const cache = new Map<string, string>();
 let cachedVersion = -1;
+let localWrites = 0;
 
 app.use("/api/*", async (c, next) => {
-  const version = dataVersion();
+  if (c.req.method !== "GET") {
+    await next();
+    localWrites++;
+    cache.clear();
+    return;
+  }
+  if (!CACHEABLE.some((p) => c.req.path === p || c.req.path.startsWith(`${p}/`))) {
+    c.header("Cache-Control", "no-store");
+    return next();
+  }
+  const version = dataVersion() * 1_000_000 + localWrites;
   if (version !== cachedVersion) {
     cache.clear();
     cachedVersion = version;
@@ -90,7 +122,7 @@ app.get("/api/campaigns/:id", (c) => {
   return result ? c.json(result) : c.json({ error: "campaign not found" }, 404);
 });
 
-function numParam(v: string | undefined, fallback: number, min: number, max: number): number {
+export function numParam(v: string | undefined, fallback: number, min: number, max: number): number {
   const n = Number(v);
   return Number.isFinite(n) && v !== undefined && v !== "" ? Math.min(max, Math.max(min, n)) : fallback;
 }
@@ -120,6 +152,67 @@ app.get("/api/targets", (c) => {
   const range = parseRange(c.req.query("from"), c.req.query("to"));
   if (typeof range === "string") return c.json({ error: range }, 400);
   return c.json(getTargets(range, numParam(c.req.query("targetAcos"), 0.3, 0.01, 5), c.req.query("campaignId") || undefined));
+});
+
+// ---- Staging queue + deploys ----
+app.get("/api/changes", (c) => c.json({ ...listStaged(), mode: deployMode() }));
+
+app.post("/api/changes", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { changes?: StageRequest[] } | StageRequest | null;
+  const list = body && "changes" in body && Array.isArray(body.changes) ? body.changes : body ? [body as StageRequest] : [];
+  if (!list.length) return c.json({ error: "No changes given" }, 400);
+  if (list.length > LIMITS.maxPerDeploy) return c.json({ error: `At most ${LIMITS.maxPerDeploy} at once` }, 400);
+  const user = c.get("user").username;
+  const staged: number[] = [];
+  const errors: { index: number; error: string }[] = [];
+  // Each item is validated on its own: one bad row doesn't block the rest.
+  list.forEach((req, index) => {
+    try {
+      staged.push(stageChange(req, user));
+    } catch (e) {
+      if (!(e instanceof StageError)) throw e;
+      errors.push({ index, error: e.message });
+    }
+  });
+  return c.json({ staged, errors }, staged.length ? 200 : 400);
+});
+
+app.delete("/api/changes/:id", (c) =>
+  discardChange(Number(c.req.param("id"))) ? c.json({ ok: true }) : c.json({ error: "Not a staged change" }, 404)
+);
+
+app.post("/api/changes/:id/revert", (c) => {
+  try {
+    return c.json({ staged: [stageRevert(Number(c.req.param("id")), c.get("user").username)] });
+  } catch (e) {
+    if (e instanceof StageError) return c.json({ error: e.message }, 400);
+    throw e;
+  }
+});
+
+app.get("/api/deploys", (c) => c.json({ deploys: listDeploys(numParam(c.req.query("limit"), 20, 1, 100)) }));
+
+app.post("/api/deploys", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { ids?: number[]; acknowledgeLive?: boolean; expectedMode?: string };
+  try {
+    return c.json(await runDeploy(body.ids ?? [], c.get("user").username, body));
+  } catch (e) {
+    if (e instanceof DeployError) return c.json({ error: e.message }, 400);
+    throw e;
+  }
+});
+
+/** SP manual-targeting ad groups — destinations for harvested search terms. */
+const harvestAdGroups = db.prepare(`
+  SELECT g.ad_group_id AS adGroupId, g.campaign_id AS campaignId, g.name AS adGroupName, c.name AS campaignName,
+         (SELECT COUNT(*) FROM sp_targets t WHERE t.ad_group_id = g.ad_group_id AND t.kind = 'keyword' AND t.match_type = 'exact') AS exactKeywords,
+         (SELECT COUNT(*) FROM sp_targets t WHERE t.ad_group_id = g.ad_group_id AND t.kind = 'product') AS productTargets
+  FROM sp_ad_groups g JOIN sp_campaigns c ON c.campaign_id = g.campaign_id
+  WHERE c.targeting_type = 'manual' AND c.state = 'enabled' AND g.state = 'enabled'
+  ORDER BY c.name, g.name`);
+app.get("/api/harvest-options", (c) => {
+  const term = c.req.query("term") ?? "";
+  return c.json({ adGroups: harvestAdGroups.all(), suggestedBid: term ? suggestedHarvestBid(term) : null, limits: LIMITS });
 });
 
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

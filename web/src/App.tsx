@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DateRangePicker } from "./components/DateRangePicker";
 import { ErrorBox } from "./components/Ui";
-import { useApi } from "./lib/api";
+import { clearCache, send, UNAUTHORIZED, useApi } from "./lib/api";
+import { useQueue } from "./lib/queue";
 import { presetRange, yesterday } from "./lib/dates";
 import { fmtDay } from "./lib/format";
 import { usePref } from "./lib/prefs";
@@ -11,7 +12,9 @@ import type { AdProduct, Meta, Range } from "./lib/types";
 import { CampaignDetailPage } from "./pages/CampaignDetail";
 import { CampaignsPage } from "./pages/Campaigns";
 import { InsightsPage } from "./pages/Insights";
+import { DeployPage } from "./pages/Deploy";
 import { KeywordsPage } from "./pages/Keywords";
+import { LoginPage } from "./pages/Login";
 import { SearchTermsPage } from "./pages/SearchTerms";
 import { OverviewPage } from "./pages/Overview";
 import { SyncPage } from "./pages/Sync";
@@ -30,12 +33,13 @@ const NAV = [
   { path: "/campaigns", label: "Campaigns", icon: "M4 6h16M4 12h16M4 18h10" },
   { path: "/keywords", label: "Keywords", icon: "M4 7h16M4 12h10M4 17h7M17 14l3 3-3 3" },
   { path: "/search-terms", label: "Search terms", icon: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-4-4" },
+  { path: "/deploy", label: "Deploy queue", icon: "M12 3v12m0-12 4 4m-4-4-4 4M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" },
   { path: "/insights", label: "Insights", icon: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z" },
   { path: "/sync", label: "Sync status", icon: "M20 11A8 8 0 0 0 6.3 5.3L4 8m0-4v4h4m-4 5a8 8 0 0 0 13.7 5.7L20 16m0 4v-4h-4" },
 ];
 
 // Mirrors the rest of Nola's feature set — listed so the roadmap is visible, not clickable yet.
-const COMING = ["SB / SD keywords & targets", "Rules (staged)", "Ready-to-deploy queue"];
+const COMING = ["SB / SD keywords & targets", "Rules (staged)", "Scheduled syncs"];
 
 function Icon({ d }: { d: string }) {
   return (
@@ -57,11 +61,46 @@ function useTheme(): [string, () => void] {
   return [theme, toggle];
 }
 
+interface Me {
+  user: { id: number; username: string } | null;
+  hasUsers?: boolean;
+  demoLogin?: { username: string; password: string } | null;
+}
+
+/** Nothing renders (or is fetched) until there's a session. */
 export function App() {
+  const [me, setMe] = useState<Me | null>(null);
+  const check = useCallback(() => {
+    fetch("/api/auth/me", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((m: Me) => setMe(m))
+      .catch(() => setMe({ user: null, hasUsers: true }));
+  }, []);
+  useEffect(() => {
+    check();
+    const onUnauthorized = () => { clearCache(); check(); };
+    window.addEventListener(UNAUTHORIZED, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED, onUnauthorized);
+  }, [check]);
+
+  if (!me) return null;
+  if (!me.user) {
+    return <LoginPage hasUsers={me.hasUsers ?? true} demoLogin={me.demoLogin ?? null} onSignedIn={() => { clearCache(); check(); }} />;
+  }
+  const signOut = async () => {
+    await send("POST", "/api/auth/logout").catch(() => undefined);
+    clearCache();
+    setMe({ user: null, hasUsers: true });
+  };
+  return <Dashboard username={me.user.username} onSignOut={signOut} />;
+}
+
+function Dashboard({ username, onSignOut }: { username: string; onSignOut: () => void }) {
   const route = useRoute();
   const meta = useApi<Meta>("/api/meta");
   const [targetAcos, setTargetAcos] = usePref("targetAcos", 0.3);
   const [, toggleTheme] = useTheme();
+  const queue = useQueue();
 
   const anchor = meta.data?.maxDate ?? yesterday();
   const from = route.params.get("from");
@@ -107,6 +146,7 @@ export function App() {
       page = <CampaignDetailPage {...props} id={decodeURIComponent(route.path.slice("/campaigns/".length))} />;
     else if (route.path === "/keywords") page = <KeywordsPage {...props} />;
     else if (route.path === "/search-terms") page = <SearchTermsPage {...props} />;
+    else if (route.path === "/deploy") page = <DeployPage {...props} />;
     else if (route.path === "/insights")
       page = <InsightsPage {...props} onTargetAcos={setTargetAcos} />;
     else if (route.path === "/sync") page = <SyncPage {...props} />;
@@ -131,6 +171,7 @@ export function App() {
               aria-current={section === n.path ? "page" : undefined}>
               <Icon d={n.icon} />
               <span>{n.label}</span>
+              {n.path === "/deploy" && queue.count > 0 && <span className="badge" aria-label={`${queue.count} staged`}>{queue.count}</span>}
             </a>
           ))}
         </nav>
@@ -140,7 +181,12 @@ export function App() {
             {COMING.map((c) => <li key={c}>{c}</li>)}
           </ul>
         </div>
-        <p className="sidebar-foot muted small">Read-only · nothing here changes your Amazon account.</p>
+        <div className="sidebar-foot">
+          <p className="muted small">Changes only reach Amazon from the Deploy queue.</p>
+          <p className="small user-line">
+            Signed in as <strong>{username}</strong> · <button className="linkish" onClick={onSignOut}>Sign out</button>
+          </p>
+        </div>
       </aside>
 
       <div className="main">
@@ -165,9 +211,10 @@ export function App() {
                 ))}
               </div>
             )}
-            {meta.data && route.path !== "/sync" && (
+            {meta.data && route.path !== "/sync" && route.path !== "/deploy" && (
               <DateRangePicker range={range} anchor={anchor} minDate={meta.data.minDate} onChange={setRange} />
             )}
+            <button className="btn show-sm-inline signout-sm" onClick={onSignOut} title={`Signed in as ${username}`}>Sign out</button>
             <button className="btn icon" onClick={toggleTheme} aria-label="Toggle dark mode" title="Toggle dark mode">
               <Icon d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" />
             </button>
@@ -181,6 +228,7 @@ export function App() {
           <a key={n.path} href={href(n.path, keepRange)} className={section === n.path ? "active" : ""}
             aria-current={section === n.path ? "page" : undefined}>
             <Icon d={n.icon} />
+            {n.path === "/deploy" && queue.count > 0 && <span className="badge tab-badge">{queue.count}</span>}
             <span>{n.path === "/search-terms" ? "Terms" : n.label.split(" ")[0]}</span>
           </a>
         ))}

@@ -208,3 +208,56 @@ CREATE VIEW IF NOT EXISTS all_campaign_daily AS
   UNION ALL
   SELECT 'sd', date, campaign_id, campaign_name, impressions, clicks, cost, sales, purchases
     FROM sd_campaign_daily_metrics;
+
+-- ---- Login + staged changes / deploys (slice five) ----
+
+CREATE TABLE IF NOT EXISTS users (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  username       TEXT NOT NULL UNIQUE,
+  password_hash  TEXT NOT NULL,            -- scrypt$N$salt$hash
+  created_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  TEXT PRIMARY KEY,            -- sha256 of the cookie value; the raw token is never stored
+  user_id     INTEGER NOT NULL,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL
+);
+
+-- The "ready to deploy" queue. Nothing in here has touched Amazon until a deploy runs.
+CREATE TABLE IF NOT EXISTS change_queue (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind            TEXT NOT NULL,   -- bid | state | negative | harvest | remove_negative | archive_keyword
+  status          TEXT NOT NULL,   -- staged | deployed | demo_applied | dry_run | failed | discarded
+  entity_key      TEXT NOT NULL,   -- one staged change per thing, e.g. bid:<targetId>
+  target_kind     TEXT,            -- keyword | product | auto (for bid/state), keyword | asin (negative/harvest)
+  entity_id       TEXT,            -- existing keyword/target id, or the id Amazon returned for a create
+  campaign_id     TEXT NOT NULL,
+  ad_group_id     TEXT NOT NULL,
+  label           TEXT NOT NULL,   -- keyword text / target expression / search term
+  old_value       TEXT,            -- JSON
+  new_value       TEXT NOT NULL,   -- JSON
+  est_daily_cost_delta REAL,       -- rough ₹/day impact, shown before deploy
+  reason          TEXT,
+  source          TEXT NOT NULL,   -- keywords | search-terms | revert
+  revert_of       INTEGER,
+  created_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  deploy_id       INTEGER,
+  result_message  TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_change_queue_staged ON change_queue (entity_key) WHERE status = 'staged';
+CREATE INDEX IF NOT EXISTS idx_change_queue_status ON change_queue (status, id);
+
+CREATE TABLE IF NOT EXISTS deploys (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  mode         TEXT NOT NULL,      -- live | dry_run | demo
+  deployed_by  TEXT NOT NULL,
+  started_at   TEXT NOT NULL,
+  finished_at  TEXT,
+  total        INTEGER NOT NULL,
+  succeeded    INTEGER NOT NULL DEFAULT 0,
+  failed       INTEGER NOT NULL DEFAULT 0,
+  est_daily_cost_delta REAL
+);

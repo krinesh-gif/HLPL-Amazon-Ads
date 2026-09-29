@@ -37,10 +37,14 @@ src/server/
   queries.ts          dashboard SQL (aggregation happens in SQLite, not the browser)
   targets.ts          keywords & targets + suggested-bid rule
   searchTerms.ts      search-term harvest / negate rules
+  auth.ts             login, sessions, same-origin guard
+  changes.ts          staging queue: guardrails, ₹ estimates, revert
+  deploy.ts           the explicit deploy step (live / dry run / demo)
 src/demo/seedDemo.ts  fake-but-realistic demo data, flagged as demo in the DB and UI
 src/sync/syncRuns.ts  logs every sync:* run to sync_runs (powers the Sync status screen)
 web/                  React + Vite UI (no UI/chart libraries — hand-rolled SVG charts)
-  src/pages/          Overview, Campaigns, Campaign detail, Keywords, Search terms, Insights, Sync status
+  src/pages/          Overview, Campaigns, Campaign detail, Keywords, Search terms, Deploy queue,
+                      Insights, Sync status, Login
 ```
 
 ## The dashboard
@@ -73,10 +77,46 @@ Screens (modelled on Nola's, read-only). Overview, Campaigns and Insights have a
 Date ranges, filters, sort and selected metric live in the URL, so any view can be bookmarked.
 Works from phone width up; light and dark mode.
 
-**Nothing in the dashboard writes to Amazon.** Any future bid/budget/pause actions must go through
-the staged "ready to deploy" design in CLAUDE.md — discuss before building.
+### Signing in
 
-**Don't expose the server publicly yet** (`HOST=0.0.0.0`): there's no login. Add auth first.
+Every screen needs a login. Create one (or reset a password) on the machine running the dashboard:
+```bash
+npm run user:add -- krinesh     # prompts for a password (min 10 chars); stored as a scrypt hash
+```
+`npm run demo` creates a `demo` / `aravi-demo` login on the demo database only.
+
+### Changing bids, negatives and keywords: the Deploy queue
+
+Changes are **staged first, deployed second**, the same safety pattern as Nola:
+
+1. **Stage.** Accept a suggested bid, set your own, or pause/enable on **Keywords**. On **Search
+   terms**, stage a negative exact (or negative ASIN) or harvest a term as an exact keyword or ASIN
+   target into an ad group you pick. Staging never talks to Amazon.
+2. **Review & deploy.** The **Deploy queue** lists every staged change with old → new value and a
+   rough ₹/day spend impact. Confirm to deploy. In live mode you also tick "I understand these go live".
+
+Guardrails, enforced by the server when staging **and again at deploy**:
+- bids ₹1–₹100, at most ±30% per step (reverts are exempt from the step limit);
+- at most 100 changes per deploy;
+- each change is re-checked against the latest sync, and if the bid or state changed in Amazon
+  since you staged it, that item is refused instead of overwriting.
+
+Every deploy is logged: who, when, and the result of each change. **Revert** on a deployed change
+stages the reverse change (old bid back, negative removed, harvested keyword archived). It still
+needs a deploy.
+
+**Modes** (shown in a banner on the queue):
+- **Dry run** is the default: `AMAZON_ADS_WRITES_ENABLED` isn't `true`, so deploy validates and records
+  what it *would* send and sends nothing.
+- **Live**: set `AMAZON_ADS_WRITES_ENABLED=true` in `.env` and restart. Do a few dry runs first.
+- **Demo**: the demo database. Deploys update the demo numbers only.
+
+The write endpoints (`keywordWrites.ts`, `targetWrites.ts`, `negativeWrites.ts`) follow Amazon's v3
+docs and were tested against a stubbed API, **not the live one**. Make the first live deploy one
+small bid change and check it in Campaign Manager.
+
+**Hosting:** sessions use HttpOnly SameSite=Strict cookies and state-changing requests are
+origin-checked. Still, only expose the server (`HOST=0.0.0.0`) behind HTTPS.
 
 ## Getting Amazon Ads API access (do this first — it's the slow part)
 
