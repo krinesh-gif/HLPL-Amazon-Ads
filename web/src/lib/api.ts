@@ -73,7 +73,7 @@ export const qs = (params: Record<string, string>) => new URLSearchParams(params
  * Sends a change (stage / discard / revert / deploy). Always JSON — the server refuses
  * anything else for state-changing requests. Clears the read cache afterwards.
  */
-export async function send<T = unknown>(method: "POST" | "DELETE", url: string, body: unknown = {}): Promise<T> {
+export async function send<T = unknown>(method: "POST" | "PUT" | "DELETE", url: string, body: unknown = {}): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },

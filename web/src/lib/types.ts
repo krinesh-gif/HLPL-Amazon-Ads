@@ -183,3 +183,51 @@ export interface StageResult {
   staged: number[];
   errors: { index: number; error: string }[];
 }
+
+export interface ProductRow {
+  asin: string;
+  sku: string | null;
+  title: string | null;
+  productGroup: string | null;
+  mrp: number | null;
+  sellingPrice: number | null;
+  unitCost: number | null;
+  status: string;
+  source: string;
+  inCatalogue: boolean;
+  spCost: number;
+  spSales: number;
+  sbCost: number;
+  sbSales: number;
+  adCost: number;
+  adSales: number;
+  adOrders: number;
+  clicks: number;
+  totalSales: number | null;
+  units: number | null;
+  sessions: number | null;
+  breakEvenAcos: number | null;
+}
+export interface ProductsResponse {
+  range: Range;
+  feePct: number;
+  rows: ProductRow[];
+  unattributed: { sb: { cost: number; sales: number }; sd: { cost: number; sales: number } };
+  businessReport: { coveredDays: number; rangeDays: number };
+}
+export interface SbMapperCampaign {
+  campaignId: string;
+  name: string;
+  state: string;
+  cost: number;
+  sales: number;
+  orders: number;
+  mapped: { asin: string; weight: number; updatedBy: string; updatedAt: string }[];
+  suggestions: { asin: string; score: number }[];
+}
+export interface SbMapperResponse {
+  range: Range;
+  campaigns: SbMapperCampaign[];
+  products: { asin: string; title: string | null; productGroup: string | null; sku: string | null }[];
+  summary: { campaigns: number; mapped: number; totalCost: number; mappedCost: number };
+}

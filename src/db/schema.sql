@@ -261,3 +261,85 @@ CREATE TABLE IF NOT EXISTS deploys (
   failed       INTEGER NOT NULL DEFAULT 0,
   est_daily_cost_delta REAL
 );
+
+-- ---- Setup: product catalogue, SB mapper, data imports (slice six) ----
+-- Local business data only; nothing here is ever written to Amazon.
+
+CREATE TABLE IF NOT EXISTS products (
+  asin           TEXT PRIMARY KEY,     -- upper-case
+  sku            TEXT,
+  title          TEXT,
+  product_group  TEXT,                 -- e.g. Hair Care / Skin Care — your own grouping
+  mrp            REAL,
+  selling_price  REAL,
+  unit_cost      REAL,                 -- landed cost / COGS per unit
+  status         TEXT NOT NULL DEFAULT 'active',   -- active | inactive
+  source         TEXT NOT NULL,        -- sync | import | manual | demo
+  updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sp_product_ads (
+  ad_id        TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  ad_group_id  TEXT NOT NULL,
+  asin         TEXT,
+  sku          TEXT,
+  state        TEXT NOT NULL,
+  synced_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sp_product_ads_asin ON sp_product_ads (asin);
+
+CREATE TABLE IF NOT EXISTS sp_advertised_product_daily (
+  date           TEXT NOT NULL,
+  campaign_id    TEXT NOT NULL,
+  ad_group_id    TEXT NOT NULL,
+  asin           TEXT NOT NULL,
+  sku            TEXT,
+  impressions    INTEGER NOT NULL DEFAULT 0,
+  clicks         INTEGER NOT NULL DEFAULT 0,
+  cost           REAL NOT NULL DEFAULT 0,
+  sales_14d      REAL NOT NULL DEFAULT 0,
+  purchases_14d  INTEGER NOT NULL DEFAULT 0,
+  synced_at      TEXT NOT NULL,
+  PRIMARY KEY (date, ad_group_id, asin)
+);
+CREATE INDEX IF NOT EXISTS idx_sp_adv_product_asin ON sp_advertised_product_daily (asin, date);
+
+-- SB campaign mapper: which products an SB campaign promotes. Its spend/sales are split
+-- across the mapped ASINs by weight (equal by default) for product-level reporting.
+CREATE TABLE IF NOT EXISTS sb_campaign_products (
+  campaign_id  TEXT NOT NULL,
+  asin         TEXT NOT NULL,
+  weight       REAL NOT NULL DEFAULT 1,
+  updated_by   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (campaign_id, asin)
+);
+
+-- Seller Central Business Report (Detail Page Sales and Traffic by Child Item) — total
+-- (organic + ad) sales and traffic per ASIN for the period the file covers.
+CREATE TABLE IF NOT EXISTS business_report (
+  asin          TEXT NOT NULL,
+  period_from   TEXT NOT NULL,
+  period_to     TEXT NOT NULL,
+  sessions      INTEGER,
+  page_views    INTEGER,
+  units         INTEGER,
+  order_items   INTEGER,
+  sales         REAL,
+  import_id     INTEGER,
+  PRIMARY KEY (asin, period_from, period_to)
+);
+
+CREATE TABLE IF NOT EXISTS data_imports (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  type         TEXT NOT NULL,          -- products | business_report | sb_mapping
+  filename     TEXT,
+  period_from  TEXT,
+  period_to    TEXT,
+  rows_total   INTEGER NOT NULL,
+  rows_imported INTEGER NOT NULL,
+  rows_skipped INTEGER NOT NULL,
+  imported_by  TEXT NOT NULL,
+  imported_at  TEXT NOT NULL
+);

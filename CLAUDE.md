@@ -49,6 +49,13 @@ slice, but relevant context if asked to integrate order/inventory data later.
   results), writers `keywordWrites.ts` / `targetWrites.ts` / `negativeWrites.ts` via `writeV3` in
   `client.ts`. Live writes need `AMAZON_ADS_WRITES_ENABLED=true`; otherwise deploys are dry runs; the
   demo DB only ever applies locally. Write endpoints tested against a stubbed API only.
+- **Slice six (Setup) added**: product catalogue (`products` table; ASINs discovered via
+  `productAds.ts` + `spAdvertisedProduct` report in `sync:products`, never overwriting user edits),
+  SB campaign mapper (`sb_campaign_products`, weights; suggestions from campaign-name tokens in
+  `sbMapper.ts`), CSV data import (`imports.ts`/`csv.ts`: Business Report by child ASIN per
+  period with overlap refusal and proration in `products.ts`, catalogue, SB mapping; preview →
+  commit; `data_imports` log). Local data only; no Amazon writes. Amazon fee % for break-even
+  ACOS lives in `meta.amazon_fee_pct`.
 - Fixed in slice three: `campaigns.ts` was typed with v2 fields on the v3 endpoint (v3 has uppercase
   enums and `budget.budget`, not `dailyBudget`) and didn't paginate; reports now split into ≤31-day
   windows.

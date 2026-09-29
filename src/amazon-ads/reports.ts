@@ -190,3 +190,26 @@ export function sdCampaignDailyReportRequest(startDate: string, endDate: string)
     },
   };
 }
+
+/**
+ * Daily SP performance per advertised product (ASIN) — product-level ad spend and sales.
+ * Same caveat as the other v3 report builders: columns from Amazon's docs, unverified live.
+ */
+export function spAdvertisedProductDailyReportRequest(startDate: string, endDate: string): ReportRequest {
+  return {
+    name: `sp-advertised-product-daily-${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    configuration: {
+      adProduct: "SPONSORED_PRODUCTS",
+      groupBy: ["advertiser"],
+      columns: [
+        "date", "campaignId", "adGroupId", "advertisedAsin", "advertisedSku",
+        "impressions", "clicks", "cost", "sales14d", "purchases14d",
+      ],
+      reportTypeId: "spAdvertisedProduct",
+      timeUnit: "DAILY",
+      format: "GZIP_JSON",
+    },
+  };
+}

@@ -12,7 +12,11 @@ import type { AdProduct, Meta, Range } from "./lib/types";
 import { CampaignDetailPage } from "./pages/CampaignDetail";
 import { CampaignsPage } from "./pages/Campaigns";
 import { InsightsPage } from "./pages/Insights";
+import { DataImportPage } from "./pages/DataImport";
 import { DeployPage } from "./pages/Deploy";
+import { ProductsPage } from "./pages/Products";
+import { SbMapperPage } from "./pages/SbMapper";
+import { SETUP_LINKS } from "./components/SetupNav";
 import { KeywordsPage } from "./pages/Keywords";
 import { LoginPage } from "./pages/Login";
 import { SearchTermsPage } from "./pages/SearchTerms";
@@ -35,7 +39,7 @@ const NAV = [
   { path: "/search-terms", label: "Search terms", icon: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-4-4" },
   { path: "/deploy", label: "Deploy queue", icon: "M12 3v12m0-12 4 4m-4-4-4 4M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" },
   { path: "/insights", label: "Insights", icon: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z" },
-  { path: "/sync", label: "Sync status", icon: "M20 11A8 8 0 0 0 6.3 5.3L4 8m0-4v4h4m-4 5a8 8 0 0 0 13.7 5.7L20 16m0 4v-4h-4" },
+  { path: "/setup/products", label: "Setup", icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-2-1.2L14.5 3h-4l-.4 2.6a7.3 7.3 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.3 7.3 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z" },
 ];
 
 // Mirrors the rest of Nola's feature set — listed so the roadmap is visible, not clickable yet.
@@ -132,9 +136,12 @@ function Dashboard({ username, onSignOut }: { username: string; onSignOut: () =>
 
   useEffect(() => window.scrollTo(0, 0), [route.path]);
 
-  const section = "/" + (route.path.split("/")[1] ?? "");
-  const title =
-    route.path.startsWith("/campaigns/") ? "Campaign" : NAV.find((n) => n.path === section)?.label ?? "Not found";
+  const isSetup = route.path.startsWith("/setup/") || route.path === "/sync";
+  // Setup screens (and Sync status) all light up the one "Setup" entry in the phone tab bar.
+  const section = isSetup ? "/setup/products" : "/" + (route.path.split("/")[1] ?? "");
+  const title = route.path.startsWith("/campaigns/") ? "Campaign"
+    : isSetup ? SETUP_LINKS.find((l) => l.path === route.path)?.label ?? "Setup"
+    : NAV.find((n) => n.path === section)?.label ?? "Not found";
 
   let page: React.ReactNode = null;
   if (meta.error) page = <ErrorBox message={`${meta.error} — is the API server running?`} />;
@@ -147,6 +154,9 @@ function Dashboard({ username, onSignOut }: { username: string; onSignOut: () =>
     else if (route.path === "/keywords") page = <KeywordsPage {...props} />;
     else if (route.path === "/search-terms") page = <SearchTermsPage {...props} />;
     else if (route.path === "/deploy") page = <DeployPage {...props} />;
+    else if (route.path === "/setup/products") page = <ProductsPage {...props} />;
+    else if (route.path === "/setup/sb-mapper") page = <SbMapperPage {...props} />;
+    else if (route.path === "/setup/import") page = <DataImportPage {...props} />;
     else if (route.path === "/insights")
       page = <InsightsPage {...props} onTargetAcos={setTargetAcos} />;
     else if (route.path === "/sync") page = <SyncPage {...props} />;
@@ -166,12 +176,21 @@ function Dashboard({ username, onSignOut }: { username: string; onSignOut: () =>
           </span>
         </a>
         <nav className="side-nav" aria-label="Main">
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.label !== "Setup").map((n) => (
             <a key={n.path} href={href(n.path, keepRange)} className={`nav-item${section === n.path ? " active" : ""}`}
               aria-current={section === n.path ? "page" : undefined}>
               <Icon d={n.icon} />
               <span>{n.label}</span>
               {n.path === "/deploy" && queue.count > 0 && <span className="badge" aria-label={`${queue.count} staged`}>{queue.count}</span>}
+            </a>
+          ))}
+        </nav>
+        <nav className="side-nav setup-group" aria-label="Setup">
+          <p className="eyebrow">Setup</p>
+          {SETUP_LINKS.map((l) => (
+            <a key={l.path} href={href(l.path, keepRange)} className={`nav-item sub${route.path === l.path ? " active" : ""}`}
+              aria-current={route.path === l.path ? "page" : undefined}>
+              <span>{l.label}</span>
             </a>
           ))}
         </nav>
@@ -211,7 +230,7 @@ function Dashboard({ username, onSignOut }: { username: string; onSignOut: () =>
                 ))}
               </div>
             )}
-            {meta.data && route.path !== "/sync" && route.path !== "/deploy" && (
+            {meta.data && !["/sync", "/deploy", "/setup/import"].includes(route.path) && (
               <DateRangePicker range={range} anchor={anchor} minDate={meta.data.minDate} onChange={setRange} />
             )}
             <button className="btn show-sm-inline signout-sm" onClick={onSignOut} title={`Signed in as ${username}`}>Sign out</button>

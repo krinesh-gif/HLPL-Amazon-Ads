@@ -40,11 +40,14 @@ src/server/
   auth.ts             login, sessions, same-origin guard
   changes.ts          staging queue: guardrails, ₹ estimates, revert
   deploy.ts           the explicit deploy step (live / dry run / demo)
+  products.ts         product catalogue + product-level performance (TACOS, break-even ACOS)
+  sbMapper.ts         SB campaign → product mapping + name-based suggestions
+  imports.ts, csv.ts  CSV data import (preview → commit), import log
 src/demo/seedDemo.ts  fake-but-realistic demo data, flagged as demo in the DB and UI
 src/sync/syncRuns.ts  logs every sync:* run to sync_runs (powers the Sync status screen)
 web/                  React + Vite UI (no UI/chart libraries — hand-rolled SVG charts)
   src/pages/          Overview, Campaigns, Campaign detail, Keywords, Search terms, Deploy queue,
-                      Insights, Sync status, Login
+                      Insights, Setup (Products, SB mapper, Data import), Sync status, Login
 ```
 
 ## The dashboard
@@ -76,6 +79,33 @@ Screens (modelled on Nola's, read-only). Overview, Campaigns and Insights have a
 
 Date ranges, filters, sort and selected metric live in the URL, so any view can be bookmarked.
 Works from phone width up; light and dark mode.
+
+### Setup: product catalogue, SB campaign mapper, data import
+
+These screens hold **your own business data**, stored locally. None of them change anything in Amazon.
+
+- **Product catalogue** (`Setup → Product catalogue`): every ASIN with SKU, title, product group,
+  MRP, selling price and unit cost. ASINs are discovered automatically from your SP ads
+  (`sync:products`). Edit a product in the table, add one by hand, or bulk-import a CSV. Per product
+  it shows ad spend (SP + mapped SB), ad sales, ACOS, total sales, **TACOS**, and **break-even ACOS**
+  = (price − unit cost − Amazon fees) ÷ price. Amazon fees are one editable % of price, 30% by
+  default. ACOS above break-even is red, meaning ads on that product lose money.
+- **SB campaign mapper** (`Setup → SB campaign mapper`): Sponsored Brands reports don't say which
+  product made the sale, so map each SB campaign to the ASINs it promotes. Its spend and sales are
+  split across them by weight, equal by default. Suggestions come from the campaign name (e.g.
+  "SB | Skin Care | …" suggests the Skin Care group); accept them one at a time or all at once.
+  SD spend isn't attributed to products yet.
+- **Data import** (`Setup → Data import`): CSV uploads, with a preview (detected columns, row
+  problems, sample rows) before anything is saved, and a history of every import:
+  - **Business Report**: Seller Central → Reports → Business Reports → *Detail Page Sales and
+    Traffic By Child Item*. Enter the same date range you downloaded. Weekly or monthly files both
+    work. Overlapping ranges are refused so sales are never double-counted; re-importing the exact
+    same range replaces it. Needed for total sales and TACOS.
+  - **Product catalogue**: any CSV with an ASIN column. Blank cells keep existing values.
+  - **SB campaign mapping**: campaign ID or exact name, ASINs separated by `|`, optional weight.
+
+  Each type has a downloadable template. Amazon's number formats (₹, `1,23,456.00`) and the B2B
+  columns are handled.
 
 ### Signing in
 
@@ -180,6 +210,7 @@ npm run sync:reports -- 30   # or a different number of days back
 npm run sync:keywords     # ad groups, keywords, product/auto targets, negative keywords (current settings)
 npm run sync:targeting    # daily performance per keyword/target (default last 14 days)
 npm run sync:search-terms # daily customer search terms (default last 14 days; run `-- 60` once to backfill)
+npm run sync:products     # SP product ads (which ASIN each ad group advertises) + daily performance per ASIN
 npm run sync:sb           # Sponsored Brands campaigns + daily performance (default last 14 days)
 npm run sync:sd           # Sponsored Display campaigns + daily performance (default last 14 days)
 npm run sync:all          # the daily job: everything above, last 14 days; one failing job doesn't stop the rest

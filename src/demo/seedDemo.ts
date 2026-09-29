@@ -1,4 +1,5 @@
 import { db, initSchema } from "../db/client.js";
+import { DEMO_PRODUCTS, demoCampaignAsins } from "./demoProducts.js";
 import { buildDemoTargets, splitDay } from "./demoTargeting.js";
 import { upsertUser } from "../server/auth.js";
 
@@ -107,6 +108,8 @@ export function seedDemo({ force = false } = {}): void {
     INSERT INTO sp_search_term_daily_metrics
       (date, search_term, target_id, campaign_id, ad_group_id, targeting, match_type, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertProductAd = db.prepare(`INSERT INTO sp_product_ads (ad_id, campaign_id, ad_group_id, asin, sku, state, synced_at) VALUES (?, ?, ?, ?, ?, 'enabled', ?)`);
+  const insertAdvProduct = db.prepare(`INSERT INTO sp_advertised_product_daily (date, campaign_id, ad_group_id, asin, impressions, clicks, cost, sales_14d, purchases_14d, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertMetric = db.prepare(`
     INSERT INTO sp_campaign_daily_metrics
       (date, campaign_id, campaign_name, impressions, clicks, cost, sales_14d, purchases_14d, synced_at)
@@ -143,7 +146,11 @@ export function seedDemo({ force = false } = {}): void {
       DELETE FROM sp_target_daily_metrics; DELETE FROM sp_search_term_daily_metrics;
       DELETE FROM sb_campaigns; DELETE FROM sd_campaigns;
       DELETE FROM sb_campaign_daily_metrics; DELETE FROM sd_campaign_daily_metrics;
-      DELETE FROM change_queue; DELETE FROM deploys;`);
+      DELETE FROM change_queue; DELETE FROM deploys;
+      DELETE FROM products; DELETE FROM sp_product_ads; DELETE FROM sp_advertised_product_daily;
+      DELETE FROM sb_campaign_products; DELETE FROM business_report; DELETE FROM data_imports;`);
+    const insertProduct = db.prepare(`INSERT INTO products (asin, sku, title, product_group, mrp, selling_price, unit_cost, status, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'demo', ?)`);
+    for (const p of DEMO_PRODUCTS) insertProduct.run(p.asin, p.sku, p.title, p.group, p.mrp, p.price, p.cost, syncedAt);
     upsertUser(DEMO_LOGIN.username, DEMO_LOGIN.password);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('data_source', 'demo')`).run();
     db.prepare(
@@ -158,6 +165,8 @@ export function seedDemo({ force = false } = {}): void {
       const adGroupId = String(500000000000000 + i * 7919);
       insertAdGroup.run(adGroupId, id, `${c.name.split("|")[1]?.trim() ?? c.name} – main`, c.state ?? "enabled", Math.round(c.cpc * 1.2 * 100) / 100, syncedAt);
       const targets = buildDemoTargets(c.name, c.cpc, rand);
+      const asins = demoCampaignAsins(c.name);
+      asins.forEach((a, k) => insertProductAd.run(`${adGroupId}-${k}`, id, adGroupId, a, DEMO_PRODUCTS.find((p) => p.asin === a)?.sku ?? null, syncedAt));
       for (const t of targets) insertTarget.run(t.id, t.kind, id, adGroupId, t.text, t.matchType, "enabled", t.bid, syncedAt);
       // One junk term already negated in some ad groups, so the "already negated" logic has something to find.
       if (i % 3 === 0) insertNegative.run(`demo-neg-${i}`, id, adGroupId, "coconut oil", "negative_exact", syncedAt);
@@ -171,6 +180,9 @@ export function seedDemo({ force = false } = {}): void {
         const totals = { impressions, clicks, cost: Math.round(cost * 100) / 100, sales: Math.round(sales * 100) / 100, orders };
         insertMetric.run(day, id, c.name, impressions, clicks, totals.cost, totals.sales, orders, syncedAt);
 
+        splitDay(totals, asins.map((_, k) => ({ w: k === 0 ? 2 : 1, conv: 1 })), rand).forEach((pt, k) => {
+          if (pt.impressions) insertAdvProduct.run(day, id, adGroupId, asins[k], pt.impressions, pt.clicks, pt.cost, pt.sales, pt.orders, syncedAt);
+        });
         splitDay(totals, targets, rand).forEach((tt, ti) => {
           const t = targets[ti];
           if (tt.impressions === 0) return;
@@ -205,6 +217,28 @@ export function seedDemo({ force = false } = {}): void {
       });
     }
 
+    // Business Reports, as if imported weekly (Mon–Sun) for the last 13 weeks: total sales =
+    // SP ad sales × an organic multiplier, plus organic-only sales for unadvertised ASINs.
+    const adSalesByDay = db.prepare(`SELECT date, asin, SUM(sales_14d) AS sales FROM sp_advertised_product_daily WHERE date BETWEEN ? AND ? GROUP BY date, asin`);
+    const logImport = db.prepare(`INSERT INTO data_imports (type, filename, period_from, period_to, rows_total, rows_imported, rows_skipped, imported_by, imported_at) VALUES ('business_report', ?, ?, ?, ?, ?, 0, 'demo', ?) RETURNING id`);
+    const insertBiz = db.prepare(`INSERT INTO business_report (asin, period_from, period_to, sessions, page_views, units, order_items, sales, import_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const lastSunday = new Date(today.getTime() - ((today.getUTCDay() + 7) % 7 || 7) * 86_400_000);
+    for (let w = 12; w >= 0; w--) {
+      const to = new Date(lastSunday.getTime() - w * 7 * 86_400_000);
+      const from = new Date(to.getTime() - 6 * 86_400_000);
+      const [f, t] = [from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)];
+      const ad = new Map<string, number>();
+      for (const r of adSalesByDay.all(f, t) as { asin: string; sales: number }[]) ad.set(r.asin, (ad.get(r.asin) ?? 0) + r.sales);
+      const id = (logImport.get(`BusinessReport-${f}_${t}.csv`, f, t, DEMO_PRODUCTS.length, DEMO_PRODUCTS.length, new Date(to.getTime() + 36 * 3_600_000).toISOString()) as { id: number }).id;
+      for (const p of DEMO_PRODUCTS) {
+        const organic = (p.group === "Hair Care" ? 1.6 : 1.1) + rand() * 1.2;
+        const sales = Math.round((ad.get(p.asin) ?? 0) * organic + 7 * (p.asin === "B0ARVROS02" ? 1400 : 600) * noise(0.3));
+        const units = Math.round(sales / p.price);
+        const sessions = Math.round(units / (0.07 + rand() * 0.05));
+        insertBiz.run(p.asin, f, t, sessions, Math.round(sessions * 1.35), units, Math.round(units * 0.97), sales, id);
+      }
+    }
+
     // Fake a history of daily syncs so the Sync status screen has something to show.
     const insertRun = db.prepare(
       `INSERT INTO sync_runs (job, started_at, finished_at, status, rows_synced, detail) VALUES (?, ?, ?, ?, ?, ?)`
@@ -217,6 +251,7 @@ export function seedDemo({ force = false } = {}): void {
       insertRun.run("targeting", t.toISOString(), done.toISOString(), "success", 900, "demo · last 14 days");
       insertRun.run("search-terms", t.toISOString(), done.toISOString(), "success", 4200, "demo · last 14 days");
       insertRun.run("sb", t.toISOString(), done.toISOString(), "success", 60, "demo · last 14 days");
+      insertRun.run("products", t.toISOString(), done.toISOString(), "success", 220, "demo · last 14 days");
       insertRun.run("sd", t.toISOString(), done.toISOString(), "success", 45, "demo · last 14 days");
       if (d === 9) insertRun.run("reports", t.toISOString(), done.toISOString(), "failed", null, "demo: report did not finish within 300000ms");
       else insertRun.run("reports", t.toISOString(), done.toISOString(), "success", CAMPAIGNS.length * 7, "demo · last 7 days");

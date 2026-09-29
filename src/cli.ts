@@ -5,6 +5,7 @@ import { syncReports } from "./sync/syncReports.js";
 import { syncKeywords } from "./sync/syncKeywords.js";
 import { syncTargetingReport } from "./sync/syncTargetingReport.js";
 import { syncSearchTerms } from "./sync/syncSearchTerms.js";
+import { syncProducts } from "./sync/syncProducts.js";
 import { syncSponsoredBrands } from "./sync/syncSponsoredBrands.js";
 import { syncSponsoredDisplay } from "./sync/syncSponsoredDisplay.js";
 import { recordSyncRun, type SyncJob } from "./sync/syncRuns.js";
@@ -42,6 +43,11 @@ async function main() {
       await recordSyncRun("search-terms", `last ${d} days`, () => syncSearchTerms(d));
       break;
     }
+    case "sync:products": {
+      const d = days(14);
+      await recordSyncRun("products", `last ${d} days`, () => syncProducts(d));
+      break;
+    }
     case "sync:sb": {
       const d = days(14);
       await recordSyncRun("sb", `last ${d} days`, () => syncSponsoredBrands(d));
@@ -65,6 +71,7 @@ async function main() {
         ["reports", range, () => syncReports(d)],
         ["targeting", range, () => syncTargetingReport(d)],
         ["search-terms", range, () => syncSearchTerms(d)],
+        ["products", range, () => syncProducts(d)],
         ["sb", range, () => syncSponsoredBrands(d)],
         ["sd", range, () => syncSponsoredDisplay(d)],
       ];
@@ -83,7 +90,7 @@ async function main() {
     default:
       console.log(
         "Usage: tsx src/cli.ts <db:init | sync:profiles | sync:campaigns | sync:reports [days] |\n" +
-          "  sync:keywords | sync:targeting [days] | sync:search-terms [days] | sync:sb [days] | sync:sd [days] | sync:all [days]>"
+          "  sync:keywords | sync:targeting [days] | sync:search-terms [days] | sync:products [days] | sync:sb [days] | sync:sd [days] | sync:all [days]>"
       );
       process.exit(1);
   }

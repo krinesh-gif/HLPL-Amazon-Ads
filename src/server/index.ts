@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { compress } from "hono/compress";
 import { existsSync } from "node:fs";
 import {
@@ -17,6 +17,9 @@ import { currentUser, hasUsers, login, logout, requireSameOrigin, requireUser, t
 import { discardChange, listDeploys, listStaged, stageChange, stageRevert, StageError, suggestedHarvestBid, LIMITS, type StageRequest } from "./changes.js";
 import { deployMode, DeployError, runDeploy } from "./deploy.js";
 import { db } from "../db/client.js";
+import { commitImport, deleteImport, FIELDS, importHistory, previewImport, templateFor, type ImportRequest, type ImportType } from "./imports.js";
+import { getProducts, saveProduct, setFeePct, type ProductInput } from "./products.js";
+import { getSbMapper, setMapping } from "./sbMapper.js";
 import { getSearchTerms } from "./searchTerms.js";
 import { getTargets } from "./targets.js";
 
@@ -53,7 +56,7 @@ app.use("/api/*", requireUser);
 // ---- Response cache for the read-only data endpoints ----
 // Keyed by URL. Cleared when a sync job commits (PRAGMA data_version bumps for other
 // connections) and whenever this server itself changes data (staging / deploys).
-const CACHEABLE = ["/api/meta", "/api/sync", "/api/overview", "/api/campaigns", "/api/targets", "/api/search-terms"];
+const CACHEABLE = ["/api/meta", "/api/sync", "/api/overview", "/api/campaigns", "/api/targets", "/api/search-terms", "/api/products", "/api/sb-mapper"];
 const cache = new Map<string, string>();
 let cachedVersion = -1;
 let localWrites = 0;
@@ -213,6 +216,55 @@ const harvestAdGroups = db.prepare(`
 app.get("/api/harvest-options", (c) => {
   const term = c.req.query("term") ?? "";
   return c.json({ adGroups: harvestAdGroups.all(), suggestedBid: term ? suggestedHarvestBid(term) : null, limits: LIMITS });
+});
+
+// ---- Setup: product catalogue, SB campaign mapper, data import (local data only) ----
+const userError = (c: Context, e: unknown) => c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+
+app.get("/api/products", (c) => {
+  const range = parseRange(c.req.query("from"), c.req.query("to"));
+  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getProducts(range));
+});
+app.post("/api/products", async (c) => {
+  try { saveProduct((await c.req.json()) as ProductInput, "create"); return c.json({ ok: true }); } catch (e) { return userError(c, e); }
+});
+app.put("/api/products/:asin", async (c) => {
+  try { saveProduct({ ...((await c.req.json()) as ProductInput), asin: c.req.param("asin") }, "update"); return c.json({ ok: true }); }
+  catch (e) { return userError(c, e); }
+});
+app.post("/api/settings/fees", async (c) => {
+  try { setFeePct(Number(((await c.req.json()) as { feePct?: number }).feePct)); return c.json({ ok: true }); } catch (e) { return userError(c, e); }
+});
+
+app.get("/api/sb-mapper", (c) => {
+  const range = parseRange(c.req.query("from"), c.req.query("to"));
+  return typeof range === "string" ? c.json({ error: range }, 400) : c.json(getSbMapper(range));
+});
+app.put("/api/sb-mapper/:campaignId", async (c) => {
+  try {
+    const body = (await c.req.json()) as { products?: { asin: string; weight?: number }[] };
+    setMapping(c.req.param("campaignId"), body.products ?? [], c.get("user").username);
+    return c.json({ ok: true });
+  } catch (e) { return userError(c, e); }
+});
+
+app.get("/api/imports", (c) => c.json({ history: importHistory(), fields: FIELDS }));
+app.get("/api/imports/template/:type", (c) => {
+  const type = c.req.param("type") as ImportType;
+  if (!FIELDS[type]) return c.json({ error: "Unknown type" }, 404);
+  return c.body("\uFEFF" + templateFor(type), 200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="aravi-${type}-template.csv"`,
+  });
+});
+app.post("/api/imports/preview", async (c) => {
+  try { return c.json(previewImport((await c.req.json()) as ImportRequest)); } catch (e) { return userError(c, e); }
+});
+app.post("/api/imports", async (c) => {
+  try { return c.json(commitImport((await c.req.json()) as ImportRequest, c.get("user").username)); } catch (e) { return userError(c, e); }
+});
+app.delete("/api/imports/:id", (c) => {
+  try { deleteImport(Number(c.req.param("id"))); return c.json({ ok: true }); } catch (e) { return userError(c, e); }
 });
 
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

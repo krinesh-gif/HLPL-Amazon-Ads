@@ -1,6 +1,6 @@
 import { db, initSchema } from "../db/client.js";
 
-export type SyncJob = "profiles" | "campaigns" | "reports" | "keywords" | "targeting" | "search-terms" | "sb" | "sd";
+export type SyncJob = "profiles" | "campaigns" | "reports" | "keywords" | "targeting" | "search-terms" | "sb" | "sd" | "products";
 
 /**
  * Wraps a sync job so every run is logged to `sync_runs` (success or failure).

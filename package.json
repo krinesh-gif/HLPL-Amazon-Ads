@@ -23,6 +23,7 @@
     "sync:keywords": "tsx src/cli.ts sync:keywords",
     "sync:targeting": "tsx src/cli.ts sync:targeting",
     "sync:search-terms": "tsx src/cli.ts sync:search-terms",
+    "sync:products": "tsx src/cli.ts sync:products",
     "sync:sb": "tsx src/cli.ts sync:sb",
     "sync:sd": "tsx src/cli.ts sync:sd",
     "sync:all": "tsx src/cli.ts sync:all",
